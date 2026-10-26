@@ -6,7 +6,7 @@
  *
  * 打开 mock：URL 加 `?mock=1`
  */
-import type { McpSelection, PlanDto } from "./types";
+import type { McpSelection, PlanDto, Scope } from "./types";
 
 const params =
   typeof window !== "undefined"
@@ -199,7 +199,7 @@ const BACKUPS = [
   },
 ];
 
-function selectedPlan(args: Record<string, unknown> | undefined, scope: string): PlanDto {
+function selectedPlan(args: Record<string, unknown> | undefined, scope: Scope): PlanDto {
   const selection = args?.selection as McpSelection | undefined;
   if (!selection) throw new Error("必须提供 MCP 选择");
   const scopedEntries = ENTRIES.filter((e) => effScope(e, scope) === scope);
@@ -245,7 +245,7 @@ function selectedPlan(args: Record<string, unknown> | undefined, scope: string):
 
 export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   await new Promise((r) => setTimeout(r, 120));
-  const scope = (args?.scope as string) ?? "user";
+  const scope = (args?.scope as Scope) ?? "user";
 
   switch (cmd) {
     case "app_info":
