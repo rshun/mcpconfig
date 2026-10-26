@@ -5,7 +5,7 @@ import type {
   CatalogDto,
   ClientDto,
   MatrixDto,
-  MergeMode,
+  PlanInput,
   PlanDto,
   ReceiptDto,
   Scope,
@@ -34,34 +34,10 @@ export const api = {
   loadCatalog: (path: string) => call<CatalogDto>("load_catalog", { path }),
   saveCatalog: (path: string, catalog: unknown) =>
     call<string[]>("save_catalog", { path, catalog }),
-  plan: (
-    catalogPath: string,
-    clients: string[] | null,
-    scope: Scope,
-    mode: MergeMode,
-    allowCommentStrip: boolean
-  ) =>
-    call<PlanDto>("plan", {
-      catalogPath,
-      clients,
-      scope,
-      mode,
-      allowCommentStrip,
-    }),
-  apply: (
-    catalogPath: string,
-    clients: string[] | null,
-    scope: Scope,
-    mode: MergeMode,
-    allowCommentStrip: boolean,
-    dryRun: boolean
-  ) =>
+  plan: (request: PlanInput) => call<PlanDto>("plan", { ...request }),
+  apply: (request: PlanInput, dryRun: boolean) =>
     call<ReceiptDto>("apply", {
-      catalogPath,
-      clients,
-      scope,
-      mode,
-      allowCommentStrip,
+      ...request,
       dryRun,
     }),
   backups: () => call<BackupDto[]>("backups"),

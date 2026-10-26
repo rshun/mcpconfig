@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "test": "node --test tests/selection.test.mjs",
+    "test:gui": "node --test tests/gui.test.mjs",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --port 4173",

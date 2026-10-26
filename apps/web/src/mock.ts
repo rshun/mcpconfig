@@ -6,6 +6,8 @@
  *
  * 打开 mock：URL 加 `?mock=1`
  */
+import type { McpSelection, PlanDto } from "./types";
+
 const params =
   typeof window !== "undefined"
     ? new URLSearchParams(window.location.search)
@@ -197,6 +199,50 @@ const BACKUPS = [
   },
 ];
 
+function selectedPlan(args: Record<string, unknown> | undefined, scope: string): PlanDto {
+  const selection = args?.selection as McpSelection | undefined;
+  if (!selection) throw new Error("必须提供 MCP 选择");
+  const scopedEntries = ENTRIES.filter((e) => effScope(e, scope) === scope);
+  const files: PlanDto["files"] = [];
+  const skipped: PlanDto["skipped"] = [];
+  for (const [id, names] of Object.entries(selection)) {
+    const client = CLIENTS.find(([cid]) => cid === id);
+    if (!client) throw new Error(`未知客户端：${id}`);
+    if (names.some((name) => !scopedEntries.some((e) => e.name === name))) {
+      throw new Error("选择包含不存在或不属于当前作用域的 MCP");
+    }
+    if (names.length === 0) continue;
+    if (!STYLES[id].scopes.includes(scope)) {
+      skipped.push({ clientId: id, reason: `${client[1]} 不支持此作用域` });
+      continue;
+    }
+    const entries = scopedEntries.filter((e) => names.includes(e.name));
+    files.push({
+      clientId: id,
+      clientName: client[1],
+      path: `~/${id}/mcp.json`,
+      format: "JSON",
+      scope,
+      existed: true,
+      blocked: null,
+      newCount: entries.length,
+      updateCount: 0,
+      unchangedCount: 0,
+      diff: entries.map((e) => snippet(id, e)).join("\n"),
+      warnings: [],
+      willWrite: true,
+    });
+  }
+  return {
+    entryCount: new Set(Object.values(selection).flat()).size,
+    issues: [],
+    missingVars: [],
+    skipped,
+    files,
+    writable: files.length,
+  };
+}
+
 export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   await new Promise((r) => setTimeout(r, 120));
   const scope = (args?.scope as string) ?? "user";
@@ -275,56 +321,22 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
       return [] as unknown as T;
 
     case "plan": {
-      const clients = (args?.clients as string[] | null) ?? null;
-      const ids = clients?.length ? clients : CLIENTS.map(([id]) => id);
-      const files = ids.map((id) => {
-        const [cname] = CLIENTS.find(([cid]) => cid === id)!;
-        const entries = ENTRIES.filter((e) => effScope(e, scope) === scope);
-        const s = STYLES[id];
-        const blocked = !s.scopes.includes(scope)
-          ? `${cname} 不支持此作用域`
-          : null;
-        const diff = blocked
-          ? ""
-          : entries.map((e) => snippet(id, e)).join("\n");
-        return {
-          clientId: id,
-          clientName: cname,
-          path: `~/${id}/mcp.json`,
-          format: "JSON",
-          scope,
-          existed: true,
-          blocked,
-          newCount: blocked ? 0 : entries.length,
-          updateCount: 0,
-          unchangedCount: 0,
-          diff,
-          warnings: blocked ? [] : [],
-          willWrite: !blocked,
-        };
-      });
-      return {
-        entryCount: ENTRIES.filter((e) => effScope(e, scope) === scope).length,
-        issues: [],
-        missingVars: [],
-        skipped: [],
-        files,
-        writable: files.filter((f) => f.willWrite).length,
-      } as T;
+      return selectedPlan(args, scope) as T;
     }
 
     case "apply": {
-      const files = (args?.clients as string[] | null) ?? CLIENTS.map(([id]) => id);
+      const plan = selectedPlan(args, scope);
+      const dryRun = args?.dryRun === true;
       return {
-        written: files.length,
+        written: dryRun ? 0 : plan.writable,
         blocked: 0,
         failed: 0,
-        backupId: "20261026-071500",
-        outcomes: files.map((id) => ({
-          clientId: id,
-          path: `~/${id}/mcp.json`,
-          status: "written",
-          label: "已写入",
+        backupId: dryRun || !plan.writable ? null : "20261026-071500",
+        outcomes: plan.files.map((file) => ({
+          clientId: file.clientId,
+          path: file.path,
+          status: dryRun ? "dryRun" : "written",
+          label: dryRun ? "演练" : "已写入",
           message: null,
         })),
       } as T;

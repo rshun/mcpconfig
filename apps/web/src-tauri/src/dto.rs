@@ -160,6 +160,8 @@ pub struct FileDto {
 impl From<FilePlan> for FileDto {
     fn from(p: FilePlan) -> Self {
         let (new_count, update_count) = p.changed_count();
+        let diff = p.diff_text();
+        let will_write = p.has_write();
         let unchanged_count = p
             .changes
             .iter()
@@ -176,9 +178,9 @@ impl From<FilePlan> for FileDto {
             new_count,
             update_count,
             unchanged_count,
-            diff: p.diff_text(),
+            diff,
             warnings: p.warnings,
-            will_write: p.has_write(),
+            will_write,
         }
     }
 }

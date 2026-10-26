@@ -88,16 +88,39 @@ impl App {
 
     /// 制定应用计划（不写盘）。
     pub fn plan(&self, req: &PlanRequest) -> Result<PlanOutcome, AppError> {
-        let (cat, issues) = self.load_catalog(&req.catalog_path)?;
-        let ctx = self.var_ctx();
-        let (resolved, missing) = resolve::resolve_catalog(&cat, self.platform, &ctx);
-
-        let entries: Vec<McpEntry> = resolve::entries_for_scope(&resolved, req.scope, req.scope);
+        let (mut cat, issues) = self.load_catalog(&req.catalog_path)?;
+        cat.entries = resolve::entries_for_scope(&cat.entries, req.scope, req.scope);
 
         let ids: Vec<String> = match &req.clients {
             Some(list) => list.clone(),
-            None => adapters::all().iter().map(|a| a.id().to_string()).collect(),
+            None => match &req.selection {
+                Some(selection) => selection.keys().cloned().collect(),
+                None => adapters::all().iter().map(|a| a.id().to_string()).collect(),
+            },
         };
+
+        if let Some(selection) = &req.selection {
+            for (id, names) in selection {
+                adapters::by_id(id).ok_or_else(|| AppError::UnknownClient(id.clone()))?;
+                if !ids.contains(id) {
+                    return Err(AppError::InvalidSelection(format!(
+                        "客户端 {id} 不在本次目标范围内"
+                    )));
+                }
+                for name in names {
+                    if !cat.entries.iter().any(|entry| &entry.name == name) {
+                        return Err(AppError::InvalidSelection(format!(
+                            "MCP {name} 不存在或不属于当前作用域"
+                        )));
+                    }
+                }
+            }
+            // 先过滤再解析变量，避免未选中条目的变量告警进入本次计划。
+            cat.entries.retain(|entry| {
+                selection.values().any(|names| names.contains(&entry.name))
+            });
+        }
+        let (entries, missing) = resolve::resolve_catalog(&cat, self.platform, &self.var_ctx());
 
         let mut plans = Vec::new();
         let mut skipped = Vec::new();
@@ -106,6 +129,20 @@ impl App {
             let Some(adapter) = adapters::by_id(id) else {
                 return Err(AppError::UnknownClient(id.clone()));
             };
+
+            let client_entries: Vec<McpEntry> = entries
+                .iter()
+                .filter(|entry| match &req.selection {
+                    Some(selection) => selection
+                        .get(id)
+                        .is_some_and(|names| names.contains(&entry.name)),
+                    None => true,
+                })
+                .cloned()
+                .collect();
+            if req.selection.is_some() && client_entries.is_empty() {
+                continue;
+            }
 
             if let Some(reason) = scope_block_reason(id, req.scope) {
                 skipped.push((id.clone(), reason));
@@ -127,7 +164,7 @@ impl App {
                 path.display().to_string(),
                 req.scope,
                 existing.as_deref(),
-                &entries,
+                &client_entries,
                 req.mode,
                 req.allow_comment_strip,
             )?;
@@ -321,6 +358,9 @@ pub struct PlanRequest {
     pub catalog_path: PathBuf,
     /// `None` 表示全部客户端
     pub clients: Option<Vec<String>>,
+    /// 精确选择：客户端 id → MCP 名称。`None` 保留 CLI 的全清单行为；
+    /// `Some(空映射)` 或客户端对应的空列表均不产生写入。
+    pub selection: Option<BTreeMap<String, Vec<String>>>,
     pub scope: Scope,
     pub mode: MergeMode,
     /// JSONC 文件含注释时是否允许重写（会丢注释）
@@ -332,6 +372,7 @@ impl PlanRequest {
         Self {
             catalog_path: catalog_path.into(),
             clients: None,
+            selection: None,
             scope: Scope::User,
             mode: MergeMode::Merge,
             allow_comment_strip: false,
@@ -375,6 +416,8 @@ pub enum AppError {
     Io(#[from] mcp_io::IoError),
     #[error("未知客户端：{0}")]
     UnknownClient(String),
+    #[error("无效选择：{0}")]
+    InvalidSelection(String),
     #[error("{0}")]
     Other(String),
 }

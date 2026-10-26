@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, DEFAULT_CATALOG, isMock } from "./api";
+import { selectionFromCells } from "./selection";
 import type {
   AppInfoDto,
   BackupDto,
@@ -8,6 +9,7 @@ import type {
   MatrixDto,
   MergeMode,
   PlanDto,
+  PlanInput,
   ReceiptDto,
   Scope,
 } from "./types";
@@ -52,6 +54,8 @@ export default function App() {
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [plan, setPlan] = useState<PlanDto | null>(null);
+  const [planRequest, setPlanRequest] = useState<PlanInput | null>(null);
+  const planRevision = useRef(0);
   const [receipt, setReceipt] = useState<ReceiptDto | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -59,8 +63,15 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
+  const invalidatePlan = useCallback(() => {
+    planRevision.current += 1;
+    setPlan(null);
+    setPlanRequest(null);
+  }, []);
+
   const refresh = useCallback(
     async (path: string, sc: Scope) => {
+      invalidatePlan();
       setLoading(true);
       setError(null);
       try {
@@ -68,7 +79,6 @@ export default function App() {
         setMatrix(m);
         setClients(c);
         setSelected(new Set());
-        setPlan(null);
       } catch (e) {
         setError(String(e));
         setMatrix(null);
@@ -76,7 +86,7 @@ export default function App() {
         setLoading(false);
       }
     },
-    []
+    [invalidatePlan]
   );
 
   const loadCatalog = useCallback(async (path: string) => {
@@ -110,11 +120,26 @@ export default function App() {
   // 评审用：带 demo=1 时自动生成全客户端计划，便于截图差异页
   useEffect(() => {
     if (!demoMode || !matrix || plan) return;
+    const revision = planRevision.current;
     (async () => {
       try {
-        const ids = matrix.clients.map((c) => c.id);
-        const p = await api.plan(catalogPath, ids, scope, mode, false);
+        const cells = matrix.rows.flatMap((row) =>
+          row.cells
+            .filter((cell) => cell.state !== "unsupported")
+            .map((cell) => `${row.name}::${cell.clientId}`)
+        );
+        const request: PlanInput = {
+          catalogPath,
+          selection: selectionFromCells(cells),
+          scope,
+          mode,
+          allowCommentStrip: false,
+        };
+        const p = await api.plan(request);
+        if (revision !== planRevision.current) return;
+        setSelected(new Set(cells));
         setPlan(p);
+        setPlanRequest(request);
       } catch {
         /* 忽略 */
       }
@@ -129,6 +154,7 @@ export default function App() {
   }, [page]);
 
   const toggle = (key: string) => {
+    invalidatePlan();
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -139,6 +165,7 @@ export default function App() {
 
   const selectAllClient = (clientId: string) => {
     if (!matrix) return;
+    invalidatePlan();
     const keys = matrix.rows
       .filter((r) => {
         const cell = r.cells.find((c) => c.clientId === clientId);
@@ -154,12 +181,22 @@ export default function App() {
   };
 
   const makePlan = async () => {
-    const ids = [...new Set([...selected].map((k) => k.split("::")[1]))];
+    invalidatePlan();
+    const revision = planRevision.current;
     setLoading(true);
     setError(null);
     try {
-      const p = await api.plan(catalogPath, ids, scope, mode, false);
+      const request: PlanInput = {
+        catalogPath,
+        selection: selectionFromCells(selected),
+        scope,
+        mode,
+        allowCommentStrip: false,
+      };
+      const p = await api.plan(request);
+      if (revision !== planRevision.current) return;
       setPlan(p);
+      setPlanRequest(request);
       setPage("diff");
     } catch (e) {
       setError(String(e));
@@ -169,10 +206,10 @@ export default function App() {
   };
 
   const applyPlan = async () => {
-    const ids = [...new Set([...selected].map((k) => k.split("::")[1]))];
+    if (!planRequest || !plan?.writable || applying) return;
     setApplying(true);
     try {
-      const r = await api.apply(catalogPath, ids, scope, mode, false, false);
+      const r = await api.apply(planRequest, false);
       setReceipt(r);
       setToast(
         r.failed > 0
@@ -288,7 +325,10 @@ export default function App() {
           <select
             className="select"
             value={mode}
-            onChange={(e) => setMode(e.target.value as MergeMode)}
+            onChange={(e) => {
+              invalidatePlan();
+              setMode(e.target.value as MergeMode);
+            }}
           >
             <option value="merge">字段合并</option>
             <option value="replace">整条替换</option>

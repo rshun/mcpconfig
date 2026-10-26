@@ -9,6 +9,7 @@ use crate::dto::{
 use mcp_app::{App, PlanRequest};
 use mcp_core::model::Scope;
 use mcp_core::plan::MergeMode;
+use std::collections::BTreeMap;
 
 fn app() -> App {
     App::from_process(None)
@@ -117,7 +118,7 @@ pub fn save_catalog(path: String, catalog: serde_json::Value) -> Result<Vec<Stri
 #[tauri::command]
 pub fn plan(
     catalog_path: String,
-    clients: Option<Vec<String>>,
+    selection: BTreeMap<String, Vec<String>>,
     scope: String,
     mode: String,
     allow_comment_strip: bool,
@@ -127,9 +128,10 @@ pub fn plan(
     req.scope = parse_scope(&scope)?;
     req.mode = parse_mode(&mode)?;
     req.allow_comment_strip = allow_comment_strip;
-    req.clients = clients;
+    req.selection = Some(selection);
 
     let out = a.plan(&req).map_err(err)?;
+    let writable = out.writable();
     Ok(PlanDto {
         entry_count: out.entry_count,
         issues: out.catalog_issues,
@@ -140,7 +142,7 @@ pub fn plan(
             .map(|(client_id, reason)| SkippedDto { client_id, reason })
             .collect(),
         files: out.plans.into_iter().map(FileDto::from).collect(),
-        writable: out.writable(),
+        writable,
     })
 }
 
@@ -148,7 +150,7 @@ pub fn plan(
 #[tauri::command]
 pub fn apply(
     catalog_path: String,
-    clients: Option<Vec<String>>,
+    selection: BTreeMap<String, Vec<String>>,
     scope: String,
     mode: String,
     allow_comment_strip: bool,
@@ -159,7 +161,7 @@ pub fn apply(
     req.scope = parse_scope(&scope)?;
     req.mode = parse_mode(&mode)?;
     req.allow_comment_strip = allow_comment_strip;
-    req.clients = clients;
+    req.selection = Some(selection);
 
     let out = a.plan(&req).map_err(err)?;
     let receipt = a.apply(&out.plans, dry_run).map_err(err)?;

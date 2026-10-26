@@ -1,0 +1,105 @@
+import assert from "node:assert/strict";
+import { extname } from "node:path";
+import { registerHooks } from "node:module";
+import { test } from "node:test";
+import { mockIPC } from "@tauri-apps/api/mocks";
+
+// Node 24 原生擦除 TS 类型；仅补上 Vite 使用的相对路径扩展名解析。
+const sourceRoot = new URL("../src/", import.meta.url).href;
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (context.parentURL?.startsWith(sourceRoot) && specifier.startsWith(".") && !extname(specifier)) {
+      return nextResolve(`${specifier}.ts`, context);
+    }
+    return nextResolve(specifier, context);
+  },
+});
+
+globalThis.window = { location: { search: "" }, crypto: globalThis.crypto };
+const calls = [];
+mockIPC((command, args) => {
+  calls.push({ command, args: structuredClone(args) });
+  return {};
+});
+const { api } = await import("../src/api.ts");
+const { selectionFromCells } = await import("../src/selection.ts");
+const { mockCall } = await import("../src/mock.ts");
+
+test("不同客户端的单元格选择完整传入预览和写入 IPC，不扩展成行列组合", async () => {
+  const request = {
+    catalogPath: "catalog.yaml",
+    selection: selectionFromCells(new Set(["filesystem::claude-code", "context7::codex"])),
+    scope: "user",
+    mode: "merge",
+    allowCommentStrip: false,
+  };
+  calls.length = 0;
+  await api.plan(request);
+  await api.apply(request, false);
+  assert.deepEqual(request.selection, { "claude-code": ["filesystem"], codex: ["context7"] });
+  assert.deepEqual(calls, [
+    { command: "plan", args: request },
+    { command: "apply", args: { ...request, dryRun: false } },
+  ]);
+});
+
+test("空选择在预览与写入 IPC 中保持为空", async () => {
+  const request = {
+    catalogPath: "catalog.yaml", selection: selectionFromCells([]),
+    scope: "user", mode: "replace", allowCommentStrip: false,
+  };
+  calls.length = 0;
+  await api.plan(request);
+  await api.apply(request, true);
+  assert.deepEqual(calls.map(({ args }) => args.selection), [{}, {}]);
+  assert.equal(calls[1].args.dryRun, true);
+});
+
+test("名称中的分隔符不会导致 MCP 名称被截断，同客户端可选择多项", () => {
+  assert.deepEqual(selectionFromCells(["team::search::codex", "fs::codex", "fs::codex"]), {
+    codex: ["team::search", "fs"],
+  });
+  for (const invalid of ["fs", "::codex", "fs::"]) {
+    assert.throws(() => selectionFromCells([invalid]), /无效/);
+  }
+});
+
+test("浏览器演示的差异与写入也只涉及逐客户端选中的 MCP", async () => {
+  const args = { scope: "user", selection: { "claude-code": ["filesystem"], codex: ["context7"] } };
+  const plan = await mockCall("plan", args);
+  assert.equal(plan.entryCount, 2);
+  assert.equal(plan.files.length, 2);
+  const claude = plan.files.find((file) => file.clientId === "claude-code");
+  const codex = plan.files.find((file) => file.clientId === "codex");
+  assert.match(claude.diff, /filesystem/);
+  assert.doesNotMatch(claude.diff, /context7|stockdb/);
+  assert.match(codex.diff, /context7/);
+  assert.doesNotMatch(codex.diff, /filesystem|stockdb/);
+  const receipt = await mockCall("apply", args);
+  assert.equal(receipt.written, plan.writable);
+  assert.deepEqual(receipt.outcomes.map((file) => file.clientId), plan.files.map((file) => file.clientId));
+});
+
+test("浏览器演示的空映射和空条目列表均不生成文件或备份", async () => {
+  for (const selection of [{}, { codex: [] }]) {
+    const args = { scope: "user", selection };
+    const plan = await mockCall("plan", args);
+    assert.deepEqual(plan.files, []);
+    const receipt = await mockCall("apply", args);
+    assert.equal(receipt.written, 0);
+    assert.equal(receipt.backupId, null);
+    assert.deepEqual(receipt.outcomes, []);
+  }
+});
+
+test("浏览器演示拒绝缺失、未知或作用域错误的选择", async () => {
+  for (const args of [
+    {},
+    { selection: { unknown: ["filesystem"] } },
+    { selection: { codex: ["missing"] } },
+    { scope: "user", selection: { codex: ["github"] } },
+  ]) {
+    await assert.rejects(mockCall("plan", args));
+    await assert.rejects(mockCall("apply", args));
+  }
+});

@@ -1,6 +1,17 @@
 export type Scope = "user" | "project" | "local";
 export type MergeMode = "merge" | "replace";
 
+/** 客户端 id → 该客户端本次选中的 MCP 名称；空映射不选择任何配置。 */
+export type McpSelection = Record<string, string[]>;
+
+export interface PlanInput {
+  catalogPath: string;
+  selection: McpSelection;
+  scope: Scope;
+  mode: MergeMode;
+  allowCommentStrip: boolean;
+}
+
 export type CellState = "ok" | "absent" | "diff" | "unsupported";
 export type DetectState = "ready" | "installed" | "configOnly" | "missing";
 

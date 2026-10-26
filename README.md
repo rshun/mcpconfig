@@ -64,6 +64,17 @@ npm --prefix apps/web run tauri dev     # 需 rustc >= 1.90
 界面包含 5 屏：客户端配置（矩阵）· MCP配置（编辑）· 差异预览 · 环境检测 · 备份回滚。
 支持深链：`?page=matrix|catalog|diff|detect|backups`。
 
+矩阵按单元格选择：例如只勾选「filesystem → Claude Code」和「github → Codex」，
+预览与写入只处理这两个配对，不会向两个客户端同时分发两条配置。
+空选择不写入；修改勾选、作用域、覆盖模式或重新加载清单后，需要重新生成预览。
+未选中的已有 MCP 条目会保留，CLI 不指定条目选择时仍按原有方式处理清单。
+
+GUI 选择回归由 GitHub Actions 的 `CI` 工作流验证：推送 `dev`、提交到 `master` 的 PR，
+或手动运行均可触发。包含 Windows/Linux Rust 测试、前端选择与 IPC 测试、前端构建，
+以及 Windows Tauri 编译检查。真实浏览器测试会点击矩阵、改变选择和覆盖模式，
+检查过期预览失效及确认写入的选择快照。前端测试使用 Node 24 和 runner 自带 Chrome，无新增测试依赖。
+回归测试使用临时配置目录，不读取或改写用户真实 MCP 配置。
+
 ## 命令行用法
 
 ```bash
