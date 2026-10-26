@@ -1,0 +1,6 @@
+node_modules/
+dist/
+src-tauri/icons/android/
+src-tauri/icons/ios/
+app-icon.png
+src-tauri/target/

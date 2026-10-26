@@ -1,0 +1,14 @@
+[package]
+name = "mcp-core"
+description = "MCP Hub 核心层：规范化模型、适配器编码/解码、插值、平台覆盖（无 IO）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+toml_edit = { workspace = true }
+thiserror = { workspace = true }

@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MCP Hub — 交互原型</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --bg:#f6f6f4; --panel:#ffffff; --line:#e3e2dd; --line-strong:#cfcec7;
+    --text:#22221f; --muted:#6b6a64; --hint:#918f88;
+    --accent:#534AB7; --accent-soft:#EEEDFE;
+    --green:#1D9E75; --green-soft:#E1F5EE;
+    --amber:#BA7517; --amber-soft:#FAEEDA;
+    --red:#A32D2D; --red-soft:#FCEBEB;
+    --blue:#185FA5; --blue-soft:#E6F1FB;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:13px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;}
+  #app{display:flex;min-height:100vh}
+
+  aside{width:196px;flex:0 0 196px;background:var(--panel);border-right:1px solid var(--line);
+    padding:16px 10px;position:sticky;top:0;height:100vh;overflow:auto}
+  .brand{font-size:14px;font-weight:600;padding:0 8px 14px;letter-spacing:.2px}
+  .brand small{display:block;font-weight:400;font-size:11px;color:var(--hint);letter-spacing:0}
+  nav button{display:block;width:100%;text-align:left;padding:8px 10px;margin-bottom:2px;
+    border:0;border-radius:8px;background:transparent;color:var(--muted);font:inherit;cursor:pointer}
+  nav button:hover{background:#f2f1ec;color:var(--text)}
+  nav button.on{background:var(--accent-soft);color:#26215C;font-weight:500}
+  .navsec{font-size:11px;color:var(--hint);padding:14px 10px 6px;letter-spacing:.4px}
+
+  main{flex:1;min-width:0;display:flex;flex-direction:column}
+  header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    padding:12px 20px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+  header .lbl{font-size:12px;color:var(--hint)}
+  select,input[type=text]{font:inherit;font-size:12px;padding:5px 8px;border:1px solid var(--line-strong);
+    border-radius:7px;background:#fff;color:var(--text)}
+  .spacer{flex:1}
+  .btn{font:inherit;font-size:12px;padding:6px 12px;border-radius:8px;border:1px solid var(--line-strong);
+    background:#fff;color:var(--text);cursor:pointer}
+  .btn:hover{border-color:#b9b7ae}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{background:#4750a5}
+  .btn.ghost{border-color:transparent;background:transparent;color:var(--muted)}
+
+  .view{padding:18px 20px 40px;max-width:1180px}
+  h1{font-size:15px;font-weight:600;margin:0 0 4px}
+  h2{font-size:13px;font-weight:600;margin:22px 0 8px}
+  p.sub{color:var(--muted);margin:0 0 14px;font-size:12px}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .card .hd{padding:10px 14px;border-bottom:1px solid var(--line);font-weight:500;font-size:12px;
+    display:flex;align-items:center;gap:8px}
+
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{font-weight:500;color:var(--muted);background:#fbfbf9;font-size:11px;white-space:nowrap}
+  tr:last-child td{border-bottom:0}
+  td.mono,pre,.mono{font-family:var(--mono);font-size:11.5px}
+
+  .matrix th.ag{text-align:center;min-width:82px}
+  .tablewrap{overflow-x:auto;overscroll-behavior-x:contain}
+  .matrix{min-width:1420px}
+  .matrix th:first-child,.matrix td:first-child{min-width:236px}
+  .matrix th:first-child,.matrix td:first-child{position:sticky;left:0;z-index:2;background:#fff}
+  .matrix th:first-child{background:#fbfbf9;z-index:3}
+  .matrix td:first-child{box-shadow:1px 0 0 var(--line)}
+  .matrix td.c{text-align:center;padding:4px}
+  .cell{width:100%;height:38px;border:1px solid transparent;border-radius:8px;background:transparent;
+    cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px}
+  .cell:hover{background:#f4f3ef}
+  .cell.sel{background:var(--accent-soft);border-color:#CECBF6}
+  .dot{width:8px;height:8px;border-radius:50%;flex:0 0 8px}
+  .dot.ok{background:var(--green)}
+  .dot.absent{background:#fff;border:1px solid #b4b2a9}
+  .dot.diff{background:var(--amber)}
+  .ck{font-size:11px;color:var(--accent);width:12px}
+
+  .bottombar{position:sticky;bottom:0;display:flex;align-items:center;gap:12px;
+    padding:10px 16px;background:var(--accent-soft);border-top:1px solid #CECBF6;border-radius:0 0 12px 12px}
+  .bottombar .cnt{font-weight:500;color:#26215C;font-size:12px}
+  .bottombar .hint{color:#534AB7;font-size:11px}
+
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;color:var(--muted);font-size:11.5px}
+  .legend span{display:flex;align-items:center;gap:6px}
+
+  .banner{padding:9px 12px;border-radius:9px;font-size:12px;margin-bottom:14px;
+    background:var(--blue-soft);color:#042C53;border:1px solid #B5D4F4}
+  .banner.warn{background:var(--amber-soft);color:#412402;border-color:#FAC775}
+  .banner.ok{background:var(--green-soft);color:#04342C;border-color:#9FE1CB}
+
+  .split{display:grid;grid-template-columns:260px 1fr;gap:14px}
+  .list{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .list button{display:block;width:100%;text-align:left;padding:10px 12px;border:0;border-bottom:1px solid var(--line);
+    background:transparent;font:inherit;cursor:pointer}
+  .list button:last-child{border-bottom:0}
+  .list button:hover{background:#f7f6f2}
+  .list button.on{background:var(--accent-soft)}
+  .list .nm{font-weight:500;font-size:12px}
+  .list .ds{color:var(--hint);font-size:11px}
+  .tag{display:inline-block;font-size:10.5px;padding:1px 6px;border-radius:5px;background:#f1efe8;
+    color:var(--muted);margin-right:4px}
+  .tag.b{background:var(--blue-soft);color:#042C53}
+  .tag.g{background:var(--green-soft);color:#04342C}
+
+  pre{margin:0;padding:10px 12px;background:#fbfbf9;border:1px solid var(--line);border-radius:8px;
+    overflow:auto;line-height:1.55;max-height:340px;white-space:pre}
+  .kv{display:grid;grid-template-columns:110px 1fr;gap:6px 12px;font-size:12px;padding:12px 14px}
+  .kv dt{color:var(--hint)}
+  .kv dd{margin:0}
+  .pill{font-size:10.5px;padding:1px 7px;border-radius:20px;border:1px solid var(--line-strong);color:var(--muted)}
+  .pill.ok{background:var(--green-soft);border-color:#9FE1CB;color:#04342C}
+  .pill.warn{background:var(--amber-soft);border-color:#FAC775;color:#412402}
+  .pill.bad{background:var(--red-soft);border-color:#F7C1C1;color:#501313}
+  .pill.info{background:var(--blue-soft);border-color:#B5D4F4;color:#042C53}
+
+  .diffgrp{margin-bottom:14px}
+  .diffhd{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#fbfbf9;
+    border:1px solid var(--line);border-bottom:0;border-radius:10px 10px 0 0;font-size:12px}
+  .diffgrp pre{border-radius:0 0 10px 10px;max-height:260px}
+  .warnline{color:var(--amber);font-size:11.5px;padding:6px 12px;background:var(--amber-soft);
+    border:1px solid #FAC775;border-top:0;font-family:var(--mono)}
+  .note{color:var(--hint);font-size:11.5px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:980px){.split{grid-template-columns:1fr}.grid2{grid-template-columns:1fr}}
+  .hidden{display:none !important}
+</style>
+</head>
+<body>
+<div id="app">
+  <aside>
+    <div class="brand">MCP Hub<small>多客户端配置中枢 · 原型</small></div>
+    <nav id="nav"></nav>
+    <div class="navsec">当前目标</div>
+    <div style="padding:0 10px;font-size:11.5px;color:var(--muted)" id="targetInfo"></div>
+  </aside>
+  <main>
+    <header id="topbar"></header>
+    <section class="view" id="view"></section>
+  </main>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ---------------- 数据：模拟真实调研结果 ---------------- */
+  /* scopes：该 Agent 支持的作用域；paths：各作用域对应的配置文件 */
+  var AGENTS = [
+    {id:'claude-code', name:'Claude Code', kind:'CLI', format:'json', root:'mcpServers', urlKey:'url',
+     secret:'dollar', cli:'claude', state:'ok',
+     scopes:['user','project','local'],
+     paths:{user:'C:\\Users\\Chensh\\.claude.json',
+            project:'<proj>\\.mcp.json',
+            local:'~/.claude.json › projects.<proj>'}},
+    {id:'codex', name:'Codex CLI', kind:'CLI', format:'toml', root:'mcp_servers', urlKey:'url',
+     secret:'native', cli:'codex', state:'ok',
+     scopes:['user','project'],
+     paths:{user:'C:\\Users\\Chensh\\.codex\\config.toml',
+            project:'<proj>\\.codex\\config.toml'}},
+    {id:'workbuddy', name:'WorkBuddy', kind:'CLI', format:'json', root:'mcpServers', urlKey:'url',
+     secret:'literal', cli:'(内置)', state:'nofile',
+     scopes:['user'],
+     paths:{user:'C:\\Users\\Chensh\\.workbuddy\\mcp.json'}},
+    {id:'kimi-code', name:'Kimi Code', kind:'CLI', format:'json', root:'mcpServers', urlKey:'url',
+     secret:'literal', cli:'kimi', state:'ok',
+     scopes:['user'],
+     paths:{user:'C:\\Users\\Chensh\\.kimi-code\\mcp.json'}},
+    {id:'opencode', name:'OpenCode', kind:'CLI', format:'jsonc', root:'mcp.servers', urlKey:'url',
+     secret:'brace', cli:'opencode', state:'ok',
+     scopes:['user','project'],
+     paths:{user:'C:\\Users\\Chensh\\.config\\opencode\\opencode.json',
+            project:'<proj>\\opencode.json'}},
+    {id:'vscode', name:'VS Code', kind:'IDE', format:'json', root:'servers', urlKey:'url',
+     secret:'literal', cli:'code', state:'nofile',
+     scopes:['user','project'],
+     paths:{user:'%APPDATA%\\Code\\User\\mcp.json',
+            project:'<proj>\\.vscode\\mcp.json'}},
+    {id:'antigravity', name:'Antigravity', kind:'IDE', format:'json', root:'mcpServers', urlKey:'serverUrl',
+     secret:'literal', cli:'agy', state:'ok',
+     scopes:['user','project'],
+     paths:{user:'C:\\Users\\Chensh\\.gemini\\config\\mcp_config.json',
+            project:'<proj>\\.agents\\mcp_config.json'}},
+    {id:'grok', name:'Grok', kind:'CLI', format:'toml', root:'mcp_servers', urlKey:'url',
+     secret:'dollar', cli:'grok', state:'orphan',
+     scopes:['user','project'],
+     paths:{user:'C:\\Users\\Chensh\\.grok\\config.toml',
+            project:'<proj>\\.grok\\config.toml'}},
+    {id:'cursor', name:'Cursor', kind:'IDE', format:'json', root:'mcpServers', urlKey:'url',
+     secret:'literal', cli:'cursor', state:'nofile',
+     scopes:['user'],
+     paths:{user:'C:/Users/Chensh/.cursor/mcp.json'}},
+    {id:'cline', name:'Cline', kind:'IDE', format:'json', root:'mcpServers', urlKey:'url',
+     secret:'literal', cli:'(扩展)', state:'ok',
+     scopes:['user'],
+     paths:{user:'C:/Users/Chensh/.cline/data/settings/cline_mcp_settings.json'}},
+    {id:'gemini-cli', name:'Gemini CLI', kind:'CLI', format:'json', root:'mcpServers', urlKey:'url',
+     secret:'literal', cli:'gemini', state:'nofile',
+     scopes:['user'],
+     paths:{user:'C:/Users/Chensh/.gemini/settings.json'}},
+    {id:'claude-desktop', name:'Claude Desktop', kind:'Desktop', format:'json', root:'mcpServers', urlKey:'url',
+     secret:'literal', cli:'(App)', state:'nofile',
+     scopes:['user'],
+     paths:{user:'%APPDATA%/Claude/claude_desktop_config.json'}},
+    {id:'windsurf', name:'Windsurf', kind:'IDE', format:'json', root:'mcpServers', urlKey:'serverUrl',
+     secret:'dollarEnv', cli:'windsurf', state:'nofile',
+     scopes:['user'],
+     paths:{user:'C:/Users/Chensh/.codeium/windsurf/mcp_config.json'}},
+    {id:'trae', name:'Trae', kind:'IDE', format:'json', root:'mcpServers', urlKey:'url',
+     secret:'literal', cli:'trae', state:'nofile',
+     scopes:['user','project'],
+     paths:{user:'%APPDATA%/Trae/User/settings/mcp.json',
+            project:'<proj>/.trae/mcp.json'}}
+  ];
+
+  /* scope：inherit = 跟随顶部全局作用域；也可逐条覆盖 */
+  var ENTRIES = [
+    {name:'stockdb', desc:'本地行情数据库', transport:'stdio', command:'python',
+     args:['-u','${PROJECT_ROOT}/ai_mcp/stockdb_full_mcp.py'],
+     env:{STOCKDB_URL:'${ENV:STOCKDB_URL}'}, tags:['finance','local'], scope:'user',
+     overrides:{windows:{command:'c:/Dev/stockdata/.venv/Scripts/python.exe'},
+                linux:{command:'/home/dev/stockdata/.venv/bin/python'}}},
+    {name:'context7', desc:'文档检索', transport:'http', url:'https://mcp.context7.com/mcp',
+     auth:{type:'bearer', token_env:'CONTEXT7_API_KEY'}, tags:['docs'], scope:'inherit'},
+    {name:'github', desc:'GitHub 仓库操作', transport:'http', url:'https://api.githubcopilot.com/mcp/',
+     auth:{type:'bearer', token_env:'GITHUB_PAT'}, tags:['vcs'], scope:'project'},
+    {name:'playwright', desc:'浏览器自动化', transport:'stdio', command:'npx',
+     args:['-y','@playwright/mcp@latest'], tags:['test'], scope:'local'},
+    {name:'filesystem', desc:'文件系统访问', transport:'stdio', command:'npx',
+     args:['-y','@modelcontextprotocol/server-filesystem','${PROJECT_ROOT}'], tags:['local'], scope:'inherit'}
+  ];
+
+  /* 现有配置状态：configured / diff / absent */
+  var PRE = {
+    'stockdb::claude-code':'ok','stockdb::codex':'ok','stockdb::workbuddy':'ok',
+    'stockdb::kimi-code':'ok','stockdb::opencode':'ok','stockdb::vscode':'ok',
+    'context7::claude-code':'ok','context7::codex':'ok',
+    'github::codex':'diff',
+    'playwright::claude-code':'ok'
+  };
+
+  var BACKUPS = [
+    {ts:'2026-10-26 14:08:12', agent:'Codex CLI', file:'~/.codex/config.toml', items:'github (修改)', size:'3.1 KB'},
+    {ts:'2026-10-26 13:52:40', agent:'Claude Code', file:'~/.claude.json', items:'stockdb, context7 (新增)', size:'12.4 KB'},
+    {ts:'2026-10-25 20:11:05', agent:'OpenCode', file:'~/.config/opencode/opencode.json', items:'stockdb (新增)', size:'2.7 KB'}
+  ];
+
+  var PAGES = [
+    ['matrix','客户端配置'],['catalog','MCP配置'],['diff','差异预览'],
+    ['detect','环境检测'],['backup','备份回滚'],['cli','命令行（Linux）']
+  ];
+
+  var SCOPE_LABEL = {user:'用户级', project:'项目级', local:'本地级', inherit:'跟随全局'};
+
+  var state = {
+    page:'matrix',
+    platform:'windows',
+    target:'local',
+    scope:'user',
+    secretPolicy:'ask',
+    mergeMode:'merge',
+    selected:{},
+    curEntry:'github',
+    applied:false
+  };
+
+  /* 默认选中：演示三档 bearer 映射 */
+  ['stockdb::claude-code','stockdb::codex','stockdb::workbuddy','stockdb::kimi-code',
+   'context7::claude-code','context7::opencode',
+   'github::claude-code','github::codex','github::opencode','github::antigravity'
+  ].forEach(function(k){ state.selected[k]=true; });
+
+  function esc(s){
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function agentById(id){
+    for(var i=0;i<AGENTS.length;i++) if(AGENTS[i].id===id) return AGENTS[i];
+    return null;
+  }
+  function entryByName(n){
+    for(var i=0;i<ENTRIES.length;i++) if(ENTRIES[i].name===n) return ENTRIES[i];
+    return null;
+  }
+  function platKey(){
+    return state.platform==='macos' ? 'macos' : state.platform;
+  }
+  /* 条目的生效作用域：条目自带 scope 优先，inherit 则跟随顶部全局 */
+  function effScope(entry){
+    if(entry.scope && entry.scope!=='inherit') return entry.scope;
+    return state.scope;
+  }
+  function supports(agent, scope){
+    return (agent.scopes||[]).indexOf(scope) >= 0;
+  }
+  function pathOf(agent, scope){
+    return (agent.paths && agent.paths[scope]) || '（该作用域不支持）';
+  }
+  function scopeBadge(entry){
+    var s = effScope(entry);
+    var own = entry.scope && entry.scope!=='inherit';
+    return '<span class="tag '+(own?'b':'')+'" title="'+(own?'条目单独指定':'跟随顶部全局作用域')+'">'+
+      SCOPE_LABEL[s]+(own?'':' ·继承')+'</span>';
+  }
+  function resolved(entry){
+    var cmd = entry.command, args = entry.args || [];
+    var o = entry.overrides && entry.overrides[platKey()];
+    if(o){ if(o.command) cmd=o.command; if(o.args) args=o.args; }
+    return {command:cmd, args:args};
+  }
+  /* 环境变量引用写法：dollar / brace / literal */
+  function refText(agent, envName){
+    if(agent.secret==='dollar') return '${'+envName+'}';
+    if(agent.secret==='dollarEnv') return '${env:'+envName+'}';
+    if(agent.secret==='brace') return '{env:'+envName+'}';
+    return '<需内联:'+envName+'>';
+  }
+
+  /* 片段生成：模拟适配器编码结果 */
+  function snippet(entry, agent){
+    var remote = entry.transport!=='stdio';
+    var r = resolved(entry);
+    var lines = [];
+    if(agent.format==='toml'){
+      lines.push('[mcp_servers.'+entry.name+']');
+      if(remote){
+        lines.push('url = "'+entry.url+'"');
+        if(entry.auth){
+          if(agent.secret==='native'){
+            lines.push('bearer_token_env_var = "'+entry.auth.token_env+'"');
+          }else{
+            lines.push('http_headers = { Authorization = "Bearer '+refText(agent,entry.auth.token_env)+'" }');
+          }
+        }
+      }else{
+        lines.push('command = "'+r.command+'"');
+        lines.push('args = ['+r.args.map(function(a){return '"'+a+'"';}).join(', ')+']');
+        if(entry.env) lines.push('env = { STOCKDB_URL = "'+entry.env.STOCKDB_URL+'" }');
+        lines.push('startup_timeout_sec = 30');
+      }
+      return lines.join('\n');
+    }
+    /* JSON 系 */
+    var inner = [];
+    if(remote){
+      if(agent.id==='antigravity'){
+        inner.push('"serverUrl": "'+entry.url+'"');
+      }else{
+        inner.push('"type": "http"');
+        inner.push('"url": "'+entry.url+'"');
+      }
+      if(entry.auth){
+        inner.push('"headers": { "Authorization": "Bearer '+refText(agent,entry.auth.token_env)+'" }');
+      }
+    }else{
+      if(agent.id==='opencode'){
+        inner.push('"type": "local"');
+        inner.push('"command": ['+[r.command].concat(r.args).map(function(a){return '"'+a+'"';}).join(', ')+']');
+      }else{
+        inner.push('"command": "'+r.command+'"');
+        inner.push('"args": ['+r.args.map(function(a){return '"'+a+'"';}).join(', ')+']');
+      }
+      var envKey = (agent.id==='opencode') ? '"environment"' : '"env"';
+      if(entry.env) inner.push(envKey+': { "STOCKDB_URL": "'+entry.env.STOCKDB_URL+'" }');
+    }
+    var entryBody = inner.join(',\n      ');
+    if(agent.root==='mcp.servers'){
+      return '{\n  "mcp": {\n    "servers": {\n      "'+entry.name+'": {\n      '+entryBody+'\n      }\n    }\n  }\n}';
+    }
+    return '{\n  "'+agent.root+'": {\n    "'+entry.name+'": {\n      '+entryBody+'\n    }\n  }\n}';
+  }
+
+  function warningsFor(entry, agent){
+    var w = [];
+    if(entry.auth && agent.secret==='literal'){
+      w.push('该客户端 headers 只认字面值，无法展开变量 → 受 secret_policy 约束（当前：'+state.secretPolicy+'）');
+    }
+    if(entry.overrides && entry.overrides[platKey()]){
+      w.push('已应用 '+platKey()+' 平台覆盖：command 已替换为 '+resolved(entry).command);
+    }
+    if(agent.id==='vscode'){
+      w.push('VS Code 用户级根键是 servers（便携格式为 mcpServers），此处按用户级写入');
+    }
+    return w;
+  }
+
+  function selKeys(){ return Object.keys(state.selected).filter(function(k){return state.selected[k];}); }
+  function countEntries(){
+    var m={}; selKeys().forEach(function(k){ m[k.split('::')[0]]=1; });
+    return Object.keys(m).length;
+  }
+  function countAgents(){
+    var m={}; selKeys().forEach(function(k){ m[k.split('::')[1]]=1; });
+    return Object.keys(m).length;
+  }
+
+  /* ---------------- 渲染 ---------------- */
+  function renderNav(){
+    var h = '';
+    PAGES.forEach(function(p){
+      h += '<button data-page="'+p[0]+'" class="'+(state.page===p[0]?'on':'')+'">'+p[1]+'</button>';
+    });
+    document.getElementById('nav').innerHTML = h;
+    document.getElementById('targetInfo').innerHTML =
+      state.target==='local' ? '本机 · 直接写入' : 'Bundle · 导出配置包';
+  }
+
+  function renderTop(){
+    var plats = [['windows','Windows'],['macos','macOS'],['linux','Linux']];
+    var opt = plats.map(function(p){
+      return '<option value="'+p[0]+'"'+(state.platform===p[0]?' selected':'')+'>'+p[1]+'</option>';
+    }).join('');
+    var tg = [['local','本机'],['bundle','Bundle 导出']].map(function(t){
+      return '<option value="'+t[0]+'"'+(state.target===t[0]?' selected':'')+'>'+t[1]+'</option>';
+    }).join('');
+    var sc = [['user','用户级'],['project','项目级'],['local','本地级']].map(function(s){
+      return '<option value="'+s[0]+'"'+(state.scope===s[0]?' selected':'')+'>'+s[1]+'</option>';
+    }).join('');
+    document.getElementById('topbar').innerHTML =
+      '<span class="lbl">目录</span>'+
+      '<select><option>customer-mcp.yaml</option><option>team-shared.yaml</option></select>'+
+      '<span class="lbl">作用域</span><select id="scSel">'+sc+'</select>'+
+      '<span class="lbl">目标平台</span><select id="platSel">'+opt+'</select>'+
+      '<span class="lbl">目标</span><select id="tgSel">'+tg+'</select>'+
+      '<div class="spacer"></div>'+
+      '<button class="btn" id="reDetect">重新侦测</button>';
+    document.getElementById('scSel').onchange = function(e){
+      state.scope = e.target.value; render();
+    };
+    document.getElementById('platSel').onchange = function(e){
+      state.platform = e.target.value; render();
+    };
+    document.getElementById('tgSel').onchange = function(e){
+      state.target = e.target.value; renderNav(); render();
+    };
+    document.getElementById('reDetect').onclick = function(){ go('detect'); };
+  }
+
+  function viewMatrix(){
+    if(state.platform==='linux'){
+      return '<div class="banner">Linux 平台：按客户要求仅提供命令行（CLI），不提供桌面 GUI。'+
+        'GUI 仅提供于 Windows / macOS；Linux 用同一条命令跑同一份清单。</div>'+
+        '<h1>Linux 上的使用方式</h1>'+
+        '<p class="sub">与 GUI 共用 Core，编码与写入行为完全一致，只是没有图形界面。</p>'+
+        '<div class="card"><div class="hd">预演 → 应用</div>'+
+        '<pre style="border:0;border-radius:0;max-height:none">$ mcp-hub-cli diff  --catalog customer-mcp.yaml --agent claude-code,codex\n'+
+        '$ mcp-hub-cli apply --catalog customer-mcp.yaml --agent claude-code,codex --yes</pre></div>'+
+        '<div class="row" style="margin-top:14px">'+
+        '<button class="btn primary" id="goCli">查看完整命令参考</button>'+
+        '<span class="note">musl 静态单文件，scp 到服务器即可运行，无需运行库</span></div>';
+    }
+    var head = '<tr><th style="width:250px">MCP 配置</th>';
+    AGENTS.forEach(function(a){
+      head += '<th class="ag">'+a.name+'<div style="font-weight:400;color:var(--hint);font-size:10px">'+a.kind+'</div></th>';
+    });
+    head += '</tr>';
+
+    var body = '';
+    ENTRIES.forEach(function(e){
+      var sc = effScope(e);
+      body += '<tr><td><div style="font-weight:500">'+e.name+' '+scopeBadge(e)+'</div>'+
+        '<div style="color:var(--hint);font-size:11px">'+
+        (e.transport==='stdio'?'本地 · stdio':'远程 · '+e.transport)+
+        (e.auth?' · bearer':'')+'</div></td>';
+      AGENTS.forEach(function(a){
+        var k = e.name+'::'+a.id;
+        var okScope = supports(a, sc);
+        var st = PRE[k] || 'absent';
+        var on = !!state.selected[k];
+        if(!okScope){
+          body += '<td class="c"><span class="cell" style="cursor:not-allowed;opacity:.35" '+
+            'title="'+a.name+' 不支持'+SCOPE_LABEL[sc]+'">—</span></td>';
+        }else{
+          body += '<td class="c"><button class="cell '+(on?'sel':'')+'" data-k="'+k+'" '+
+            'title="'+SCOPE_LABEL[sc]+' → '+pathOf(a,sc)+'">'+
+            '<span class="dot '+st+'"></span>'+
+            '<span class="ck">'+(on?'✓':'')+'</span></button></td>';
+        }
+      });
+      body += '</tr>';
+    });
+
+    var skipped = 0;
+    ENTRIES.forEach(function(e){
+      AGENTS.forEach(function(a){ if(!supports(a, effScope(e))) skipped++; });
+    });
+
+    var n = selKeys().length;
+    var foot = '<div class="bottombar">'+
+      '<span class="cnt">已选 '+countEntries()+' 个 MCP 配置 × '+countAgents()+' 个客户端 = '+n+' 项</span>'+
+      '<span class="hint">'+skipped+' 格因作用域不支持而不可选</span>'+
+      '<div class="spacer"></div>'+
+      '<button class="btn primary" id="apply">一键应用</button></div>';
+
+    return '<h1>客户端配置</h1>'+
+      '<p class="sub">选择要把哪些 MCP 配置分发给哪些客户端，点格子勾选即可。'+
+      '每项配置名称旁的标签是它的生效作用域，当前全局作用域为 <b>'+SCOPE_LABEL[state.scope]+'</b>。</p>'+
+      '<div class="card"><div class="tablewrap"><table class="matrix"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div>'+foot+'</div>'+
+      '<div class="legend">'+
+        '<span><i class="dot ok"></i>已配置且一致</span>'+
+        '<span><i class="dot absent"></i>未配置</span>'+
+        '<span><i class="dot diff"></i>已配置但有差异</span>'+
+        '<span>— 该客户端不支持此作用域</span>'+
+        '<span style="color:var(--hint)">悬停格子可看写入路径</span>'+
+        '<span style="color:var(--hint)">删除需在差异预览中显式勾选，未勾选即保留</span>'+
+      '</div>';
+  }
+
+  function yamlFor(e){
+    var q = function(a){ return '"'+a+'"'; };
+    var y = 'version: 1\nentries:\n';
+    y += '  - name: ' + e.name + '\n';
+    y += '    description: ' + (e.desc||'') + '\n';
+    y += '    transport: ' + e.transport + '\n';
+    if(e.scope && e.scope!=='inherit') y += '    scope: ' + e.scope + '\n';
+    if(e.transport==='stdio'){
+      y += '    command: ' + (e.command||'') + '\n';
+      y += '    args: [' + (e.args||[]).map(q).join(', ') + ']\n';
+      if(e.env && Object.keys(e.env).length){
+        y += '    env:\n';
+        Object.keys(e.env).forEach(function(k){ y += '      ' + k + ': ' + e.env[k] + '\n'; });
+      }
+      if(e.overrides){
+        y += '    overrides:\n';
+        ['windows','linux'].forEach(function(p){
+          if(e.overrides[p]) y += '      ' + p + ':\n        command: ' + e.overrides[p].command + '\n';
+        });
+      }
+    }else{
+      y += '    url: ' + (e.url||'') + '\n';
+      if(e.auth) y += '    auth:\n      type: bearer\n      token_env: ' + e.auth.token_env + '\n';
+    }
+    y += '    tags: [' + (e.tags||[]).join(', ') + ']';
+    return y;
+  }
+
+  function fieldRow(label, input){
+    return '<div style="display:grid;grid-template-columns:86px 1fr;gap:10px;align-items:center;margin-bottom:8px">'+
+      '<label style="color:var(--hint);font-size:12px">'+label+'</label>'+input+'</div>';
+  }
+
+  function viewCatalog(){
+    var list = '<button id="addEntry" style="display:block;width:100%;text-align:left;padding:10px 12px;'+
+      'border:0;border-bottom:1px solid var(--line);background:#fbfbf9;font:inherit;'+
+      'color:var(--accent);cursor:pointer">＋ 新增配置</button>';
+    list += ENTRIES.map(function(e,i){
+      var on = state.curEntry===e.name;
+      return '<button data-e="'+e.name+'" class="'+(on?'on':'')+'">'+
+        '<div class="nm"'+(on?' id="curListName"':'')+'>'+esc(e.name)+'</div>'+
+        '<div class="ds">'+esc(e.desc||'')+'</div></button>';
+    }).join('');
+
+    var e = entryByName(state.curEntry) || ENTRIES[0];
+    if(!e) return '<h1>MCP配置</h1><p class="sub">清单为空，点左侧「新增配置」开始。</p>'+
+      '<div class="split"><div class="list">'+list+'</div><div></div></div>';
+    state.curEntry = e.name;
+
+    var cv = e.transport==='stdio'
+      ? (resolved(e).command + ' ' + resolved(e).args.join(' '))
+      : (e.url||'');
+
+    var fields = '';
+    fields += fieldRow('名称', '<input type="text" data-f="name" value="'+esc(e.name)+'">');
+    fields += fieldRow('描述', '<input type="text" data-f="desc" value="'+esc(e.desc||'')+'">');
+    fields += fieldRow('传输', '<select data-f="transport">'+
+      ['stdio','http','sse'].map(function(t){
+        return '<option value="'+t+'"'+(e.transport===t?' selected':'')+'>'+t+'</option>';
+      }).join('')+'</select>');
+    fields += fieldRow('作用域', '<select data-f="scope">'+
+      ['inherit','user','project','local'].map(function(s){
+        return '<option value="'+s+'"'+((e.scope||'inherit')===s?' selected':'')+'>'+
+          (s==='inherit' ? '跟随全局（当前 '+SCOPE_LABEL[state.scope]+'）' : SCOPE_LABEL[s])+
+          '</option>';
+      }).join('')+'</select>');
+    if(e.transport==='stdio'){
+      fields += fieldRow('命令', '<input type="text" data-f="command" value="'+esc(e.command||'')+'">');
+      fields += fieldRow('参数', '<input type="text" data-f="args" value="'+esc((e.args||[]).join(', '))+'">');
+      fields += fieldRow('环境变量', '<input type="text" data-f="env" value="'+
+        esc(e.env ? Object.keys(e.env).map(function(k){return k+'='+e.env[k];}).join(', ') : '')+
+        '" placeholder="KEY=VALUE, KEY2=VALUE2">');
+    }else{
+      fields += fieldRow('地址', '<input type="text" data-f="url" value="'+esc(e.url||'')+'">');
+      fields += fieldRow('Bearer 变量', '<input type="text" data-f="tokenEnv" value="'+
+        esc(e.auth?e.auth.token_env:'')+'" placeholder="留空表示无需认证，例如 GITHUB_PAT">');
+    }
+    fields += fieldRow('标签', '<input type="text" data-f="tags" value="'+esc((e.tags||[]).join(', '))+'">');
+
+    return '<h1>MCP配置</h1>'+
+      '<p class="sub">这里维护客户自持的配置清单。改动会立即反映到「客户端配置」页。每条配置可单独指定作用域，未指定则跟随顶部全局作用域。</p>'+
+      '<div class="split"><div class="list">'+list+'</div><div>'+
+        '<div class="card"><div class="hd">编辑条目'+
+          '<span class="tag '+(e.transport==='stdio'?'g':'b')+'">'+e.transport+'</span>'+
+          (e.auth?'<span class="tag">bearer</span>':'')+
+          '<div class="spacer"></div><span id="saveHint" class="note"></span></div>'+
+          '<div style="padding:12px 14px">'+fields+
+          '<div class="row" style="margin-top:12px">'+
+          '<button class="btn primary" id="saveEntry">保存到清单</button>'+
+          '<button class="btn" id="delEntry">删除此条</button>'+
+          '<span class="note">保存后写入 <span class="mono">customer-mcp.yaml</span></span>'+
+          '</div></div></div>'+
+        '<dl class="kv" style="padding-left:0">'+
+        '<dt>生效作用域</dt><dd>'+SCOPE_LABEL[effScope(e)]+
+          (e.scope&&e.scope!=='inherit'?'（条目指定）':'（跟随全局）')+'</dd>'+
+        '<dt>当前平台</dt><dd>'+platKey()+'</dd>'+
+        '<dt>'+(e.transport==='stdio'?'实际命令':'实际地址')+'</dt><dd class="mono">'+esc(cv)+'</dd>'+
+        (e.overrides?'<dt>平台覆盖</dt><dd class="note">windows / linux 各自覆盖 command；适配器不感知平台差异</dd>':'')+
+        '</dl>'+
+        '<h2>清单源（YAML）</h2><pre id="yamlBox">'+esc(yamlFor(e))+'</pre>'+
+        '<p class="note" style="margin-top:10px">「客户端配置」页左侧 = 这份清单的 entries。'+
+        '切换顶部平台可看到 <span class="mono">实际命令</span> 随平台覆盖变化。</p>'+
+        '</div></div>';
+  }
+
+  function viewDiff(){
+    var keys = selKeys();
+    if(!keys.length){
+      return '<h1>差异预览</h1><p class="sub">还没有选中任何目标。回到「客户端配置」页勾选后再来。</p>'+
+        '<div class="banner">未勾选 = 不写入。删除也必须在这里显式勾选。</div>';
+    }
+    /* 按 Agent × 作用域 分组：同一 Agent 的不同作用域落在不同文件 */
+    var byAgent = {};
+    var blocked = [];
+    keys.forEach(function(k){
+      var p = k.split('::');
+      var a = agentById(p[1]), e2 = entryByName(p[0]);
+      if(!a || !e2) return;
+      var sc = effScope(e2);
+      if(!supports(a, sc)){
+        blocked.push(p[0]+' → '+a.name+'（不支持'+SCOPE_LABEL[sc]+'）');
+        return;
+      }
+      byAgent[p[1]] = byAgent[p[1]] || {};
+      (byAgent[p[1]][sc] = byAgent[p[1]][sc] || []).push(p[0]);
+    });
+
+    var groups = '';
+    var warnCount = 0, fileCount = 0;
+    Object.keys(byAgent).forEach(function(aid){
+      var a = agentById(aid);
+      Object.keys(byAgent[aid]).forEach(function(sc){
+        fileCount++;
+        var names = byAgent[aid][sc];
+        groups += '<div class="diffgrp"><div class="diffhd">'+
+          '<b>'+a.name+'</b>'+
+          '<span class="pill info">'+SCOPE_LABEL[sc]+'</span>'+
+          '<span class="pill">'+a.format.toUpperCase()+'</span>'+
+          '<span class="mono" style="color:var(--hint)">'+esc(pathOf(a,sc))+'</span>'+
+          '<div class="spacer"></div><span class="note">根键 '+a.root+'</span></div>';
+        var chunks = '';
+        names.forEach(function(nm){
+          var e = entryByName(nm);
+          var st = PRE[nm+'::'+aid] || 'absent';
+          var mark = st==='absent' ? '新增' : (st==='ok' ? '无变化' : '修改');
+          var cls = st==='absent' ? 'ok' : (st==='ok' ? '' : 'warn');
+          chunks += '<div style="padding:8px 12px;background:#fff;border-left:1px solid var(--line);border-right:1px solid var(--line)">'+
+            '<span class="pill '+cls+'">'+mark+'</span> <b class="mono">'+nm+'</b></div>'+
+            '<pre style="border-radius:0;border-top:0">'+esc(snippet(e,a))+'</pre>';
+          if(st==='ok'){
+            chunks += '<div class="note" style="padding:6px 12px;border:1px solid var(--line);border-top:0;'+
+              'border-radius:0 0 10px 10px">已与现有配置一致，本次跳过、不写入、不产生备份</div>';
+          }
+          warningsFor(e,a).forEach(function(w){
+            if(w.indexOf('secret_policy')>=0) warnCount++;
+            chunks += '<div class="warnline">! '+esc(w)+'</div>';
+          });
+        });
+        groups += chunks + '</div>';
+      });
+    });
+
+    var blockedBox = blocked.length
+      ? '<div class="banner warn"><b>已跳过 '+blocked.length+' 项</b>（作用域不支持，不会写入）：<br>'+
+        blocked.map(function(s){ return '<span class="mono">· '+esc(s)+'</span>'; }).join('<br>')+'</div>'
+      : '';
+
+    var policy = '<div class="card" style="margin-bottom:14px"><div class="hd">写入行为</div>'+
+      '<div style="padding:12px 14px">'+
+      '<div class="row" style="margin-bottom:8px">'+
+      '<span class="lbl" style="width:132px;color:var(--hint)">覆盖方式</span>'+
+      '<select id="mergeSel">'+
+      [['merge','合并保留（推荐）— 同名条目只改清单声明的字段'],
+       ['replace','整条替换 — 同名条目以清单为准，文件里多出的字段会被删掉']].map(function(m){
+        return '<option value="'+m[0]+'"'+(state.mergeMode===m[0]?' selected':'')+'>'+m[1]+'</option>';
+      }).join('')+
+      '</select></div>'+
+      '<div class="row" style="margin-bottom:8px">'+
+      '<span class="lbl" style="width:132px;color:var(--hint)">密钥策略</span>'+
+      '<select id="polSel">'+
+      ['ask','inline','skip','fail'].map(function(p){
+        var d = {ask:'ask — 应用时弹窗确认',inline:'inline — 解析环境变量写明文',
+                 skip:'skip — 跳过该条并告警',fail:'fail — 报错终止'}[p];
+        return '<option value="'+p+'"'+(state.secretPolicy===p?' selected':'')+'>'+d+'</option>';
+      }).join('')+
+      '</select>'+
+      '<span class="note">当前有 <b>'+warnCount+'</b> 处需要内联的密钥</span></div>'+
+      '<div class="note">没有列出的条目一律不动：文件里你自己加的其它 MCP 配置、以及清单里没声明的字段，都会原样保留。'+
+      '标记「无变化」的条目已与现有配置一致，本次不会写入。</div>'+
+      '</div></div>';
+
+    var result = state.applied
+      ? '<div class="banner ok"><b>写入完成</b>（模拟）<br>'+
+        '已写入 '+fileCount+' 个配置文件 · 备份至 <span class="mono">~/.mcp-hub/backups/20261026-141012/</span><br>'+
+        '写后校验通过 · 审计日志已记录（不含密钥值）'+
+        (warnCount?'<br>内联密钥 '+warnCount+' 处已按 '+state.secretPolicy+' 处理，备份目录权限 0700':'')+
+        '</div>'
+      : '';
+
+    return '<h1>差异预览</h1>'+
+      '<p class="sub">逐文件展示将要发生的变化。同一客户端的不同作用域是不同文件，分开列出。'+
+      '同名条目按字段合并（清单没声明的字段保留）；清单外的条目一律不动。</p>'+
+      result+blockedBox+policy+groups+
+      '<div class="row" style="margin-top:16px">'+
+      '<button class="btn primary" id="confirm">确认写入 '+fileCount+' 个文件</button>'+
+      '<button class="btn" id="backMatrix">返回客户端配置</button>'+
+      (state.applied?'<button class="btn" onclick="0">查看备份</button>':'')+
+      '</div>';
+  }
+
+  function statePill(s){
+    if(s==='ok') return '<span class="pill ok">已就绪</span>';
+    if(s==='nofile') return '<span class="pill info">已安装未配置</span>';
+    if(s==='orphan') return '<span class="pill warn">仅配置存在</span>';
+    return '<span class="pill bad">未检测</span>';
+  }
+
+  function viewDetect(){
+    var rows = AGENTS.map(function(a){
+      var sc = (a.scopes||[]).map(function(s){
+        return '<span class="tag '+(s===state.scope?'b':'')+'">'+SCOPE_LABEL[s]+'</span>';
+      }).join('');
+      return '<tr><td><b>'+a.name+'</b><div class="note">'+a.kind+'</div></td>'+
+        '<td class="mono">'+(a.cli==='(内置)'?'—':'$ '+a.cli)+'</td>'+
+        '<td>'+sc+'</td>'+
+        '<td class="mono">'+esc(pathOf(a,state.scope))+'</td>'+
+        '<td>'+statePill(a.state)+'</td>'+
+        '<td><button class="btn ghost" style="padding:2px 8px">路径覆盖</button></td></tr>';
+    }).join('');
+    return '<h1>环境检测</h1>'+
+      '<p class="sub">三通道自动侦测：配置路径（最权威）→ CLI 可执行文件 → 应用安装目录。'+
+      '路径列按当前作用域（<b>'+SCOPE_LABEL[state.scope]+'</b>）显示。</p>'+
+      '<div class="banner">环境变量优先于默认路径：<span class="mono">CLAUDE_CONFIG_DIR</span> · '+
+      '<span class="mono">COPILOT_HOME</span> · <span class="mono">XDG_CONFIG_HOME</span> · '+
+      '<span class="mono">OPENCODE_CONFIG</span></div>'+
+      '<div class="card"><div class="hd">侦测结果 <span class="note">（未安装也允许写入：为 Bundle 与预配置留路）</span></div>'+
+      '<table><thead><tr><th>客户端</th><th>CLI 探测</th><th>支持作用域</th><th>当前作用域路径</th><th>状态</th><th></th></tr></thead>'+
+      '<tbody>'+rows+'</tbody></table></div>'+
+      '<h2>手工指定</h2>'+
+      '<div class="grid2">'+
+      '<div class="card"><div class="hd">路径覆盖</div><div style="padding:12px 14px">'+
+      '<div class="row"><input type="text" style="flex:1" value="C:\\Users\\Chensh\\.grok\\config.toml">'+
+      '<button class="btn">保存</button></div>'+
+      '<p class="note" style="margin:8px 0 0">覆盖优先于自动探测。适用于路径迁移、绿色版安装。</p></div></div>'+
+      '<div class="card"><div class="hd">自定义客户端</div><div style="padding:12px 14px">'+
+      '<p class="note" style="margin:0">未收录的客户端用通用适配器声明：路径 + 根键 + 命令写法 + 变量键，无需等官方适配。</p>'+
+      '<div class="row" style="margin-top:8px"><button class="btn">新增自定义客户端</button></div></div></div>'+
+      '</div>';
+  }
+
+  function pad(s,n){ s=String(s); while(s.length<n) s+=' '; return s; }
+
+  /* 表单字段 → 清单条目（实时） */
+  function applyField(e, f, val){
+    if(f==='name'){ e.name = val; state.curEntry = val; }
+    else if(f==='desc'){ e.desc = val; }
+    else if(f==='command'){ e.command = val; }
+    else if(f==='args'){
+      e.args = val.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+    }
+    else if(f==='env'){
+      var o = {};
+      val.split(',').forEach(function(kv){
+        var p = kv.split('=');
+        if(p[0] && p[0].trim()) o[p[0].trim()] = (p[1]||'').trim();
+      });
+      e.env = Object.keys(o).length ? o : null;
+    }
+    else if(f==='url'){ e.url = val; }
+    else if(f==='scope'){ e.scope = val; }
+    else if(f==='tokenEnv'){ e.auth = val.trim() ? {type:'bearer', token_env: val.trim()} : null; }
+    else if(f==='tags'){
+      e.tags = val.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+    }
+    var y = document.getElementById('yamlBox');
+    if(y) y.textContent = yamlFor(e);
+    var nm = document.getElementById('curListName');
+    if(nm){
+      nm.textContent = e.name;
+      if(f==='desc' && nm.nextElementSibling) nm.nextElementSibling.textContent = e.desc;
+    }
+  }
+
+  function viewBackup(){
+    var rows = BACKUPS.map(function(b){
+      return '<tr><td class="mono">'+b.ts+'</td><td>'+b.agent+'</td>'+
+        '<td class="mono">'+esc(b.file)+'</td><td>'+b.items+'</td><td class="mono">'+b.size+'</td>'+
+        '<td><button class="btn ghost" style="padding:2px 8px">回滚</button></td></tr>';
+    }).join('');
+    return '<h1>备份与回滚</h1>'+
+      '<p class="sub">每次写入前自动备份原文，可回滚到任意时间点。</p>'+
+      '<div class="banner warn">备份是完整原文拷贝，可能含内联密钥 → 目录权限 0700，默认保留 30 天（可配置）。</div>'+
+      '<div class="card"><div class="hd">备份记录</div><table>'+
+      '<thead><tr><th>时间</th><th>客户端</th><th>文件</th><th>变更条目</th><th>大小</th><th></th></tr></thead>'+
+      '<tbody>'+rows+'</tbody></table></div>'+
+      '<h2>审计日志</h2>'+
+      '<pre>'+[
+        ['2026-10-26 14:10:12','apply','codex','~/.codex/config.toml','+1 ~1','内联密钥:1'],
+        ['2026-10-26 14:10:12','apply','claude-code','~/.claude.json','+2',''],
+        ['2026-10-26 14:08:12','apply','opencode','~/.config/opencode/opencode.json','+1',''],
+        ['2026-10-26 13:52:40','rollback','claude-code','~/.claude.json','restore','13:52:39']
+      ].map(function(r){
+        return pad(r[0],21)+pad(r[1],10)+pad(r[2],14)+pad(r[3],36)+pad(r[4],9)+r[5];
+      }).join('\n')+'</pre>';
+  }
+
+  function viewCli(){
+    return '<h1>命令行（Linux / 服务器 / CI）</h1>'+
+      '<p class="sub">Linux 仅提供 CLI，没有 GUI。与 GUI 共用同一套 Core，编码与写入行为完全一致。</p>'+
+      '<div class="banner">安装：下载 <span class="mono">mcp-hub-cli</span>（musl 静态单文件），'+
+      '<span class="mono">scp</span> 到服务器即可运行，无需任何运行库。</div>'+
+
+      '<h2>预演（不改任何文件）</h2>'+
+      '<pre>$ mcp-hub-cli diff --catalog customer-mcp.yaml --agent claude-code,codex\n'+
+      'codex        ~/.codex/config.toml              +2 ~1\n'+
+      'claude-code  ~/.claude.json                    +2\n'+
+      '需要内联密钥 1 处（antigravity 不支持变量展开）</pre>'+
+
+      '<h2>应用</h2>'+
+      '<pre>$ mcp-hub-cli apply --catalog customer-mcp.yaml --agent claude-code,codex --yes\n'+
+      'backup  ~/.mcp-hub/backups/20261026-141012/\n'+
+      'write   ~/.codex/config.toml              ok\n'+
+      'write   ~/.claude.json                    ok\n'+
+      'verify  all 2 files parsed                ok\n'+
+      'audit   ~/.mcp-hub/audit.log              ok</pre>'+
+
+      '<h2>侦测</h2>'+
+      '<pre>$ mcp-hub-cli doctor\n'+
+      'claude-code  ready       ~/.claude.json\n'+
+      'codex        ready       ~/.codex/config.toml\n'+
+      'vscode       no-config   %APPDATA%/Code/User/mcp.json\n'+
+      'grok         orphan      ~/.grok/config.toml\n'+
+      'linux        gui-not-supported（按设计仅提供 CLI）</pre>'+
+
+      '<h2>跨机器</h2>'+
+      '<pre>$ mcp-hub-cli export --out bundle-win.tar.gz --platform windows\n'+
+      '$ mcp-hub-cli import bundle-win.tar.gz\n'+
+      '安全：非交互环境 secret_policy 默认 fail，绝不悄悄把密钥写进文件</pre>';
+  }
+
+  function render(){
+    renderNav(); renderTop();
+    var v = document.getElementById('view');
+    if(state.page==='matrix') v.innerHTML = viewMatrix();
+    else if(state.page==='catalog') v.innerHTML = viewCatalog();
+    else if(state.page==='diff') v.innerHTML = viewDiff();
+    else if(state.page==='detect') v.innerHTML = viewDetect();
+    else if(state.page==='backup') v.innerHTML = viewBackup();
+    else v.innerHTML = viewCli();
+    bind();
+  }
+
+  function go(p){ state.page=p; if(p!=='diff') state.applied=false; render(); }
+
+  /* 深链：index.html#diff 直接打开对应页面，便于分享单屏 */
+  function fromHash(){
+    var h = (location.hash||'').replace('#','');
+    for(var i=0;i<PAGES.length;i++) if(PAGES[i][0]===h) return h;
+    return null;
+  }
+
+  function bind(){
+    var nav = document.getElementById('nav');
+    nav.onclick = function(e){
+      var b = e.target.closest('button[data-page]');
+      if(b) go(b.dataset.page);
+    };
+    var v = document.getElementById('view');
+
+    v.querySelectorAll('.cell').forEach(function(c){
+      c.onclick = function(){
+        var k = c.dataset.k;
+        state.selected[k] = !state.selected[k];
+        if(!state.selected[k]) delete state.selected[k];
+        render();
+      };
+    });
+    var ap = document.getElementById('apply');
+    if(ap) ap.onclick = function(){ go('diff'); };
+    var gc = document.getElementById('goCli');
+    if(gc) gc.onclick = function(){ go('cli'); };
+    var cf = document.getElementById('confirm');
+    if(cf) cf.onclick = function(){ state.applied=true; render(); };
+    var bm = document.getElementById('backMatrix');
+    if(bm) bm.onclick = function(){ go('matrix'); };
+    var ps = document.getElementById('polSel');
+    if(ps) ps.onchange = function(e){ state.secretPolicy=e.target.value; render(); };
+    var ms = document.getElementById('mergeSel');
+    if(ms) ms.onchange = function(e){ state.mergeMode=e.target.value; render(); };
+    v.querySelectorAll('button[data-e]').forEach(function(b){
+      b.onclick = function(){ state.curEntry=b.dataset.e; render(); };
+    });
+
+    /* 服务目录：编辑即改清单，不整体重渲染（避免输入框失焦） */
+    if(state.page==='catalog'){
+      var ce = entryByName(state.curEntry);
+      if(ce){
+        v.querySelectorAll('[data-f]').forEach(function(inp){
+          if(inp.tagName==='SELECT'){
+            inp.onchange = function(){
+              applyField(ce, inp.dataset.f, inp.value);
+              if(inp.dataset.f==='scope') render();
+            };
+          }else{
+            inp.oninput = function(){ applyField(ce, inp.dataset.f, inp.value); };
+          }
+        });
+        var tr = v.querySelector('[data-f="transport"]');
+        if(tr) tr.onchange = function(){ ce.transport = tr.value; render(); };
+        var sv = document.getElementById('saveEntry');
+        if(sv) sv.onclick = function(){
+          var h = document.getElementById('saveHint');
+          if(h){ h.textContent = '已保存 · customer-mcp.yaml'; h.style.color = 'var(--green)'; }
+        };
+        var dl = document.getElementById('delEntry');
+        if(dl) dl.onclick = function(){
+          var i = ENTRIES.indexOf(ce);
+          if(i>=0) ENTRIES.splice(i,1);
+          Object.keys(PRE).forEach(function(k){ if(k.indexOf(ce.name+'::')===0) delete PRE[k]; });
+          state.curEntry = ENTRIES.length ? ENTRIES[0].name : '';
+          render();
+        };
+        var ad = document.getElementById('addEntry');
+        if(ad) ad.onclick = function(){
+          var n='new-server', k=2;
+          while(entryByName(n)){ n='new-server-'+(k++); }
+          ENTRIES.push({name:n, desc:'新建条目', transport:'stdio', command:'npx', args:[], tags:[]});
+          state.curEntry = n; render();
+        };
+      }
+    }
+  }
+
+  var startPage = fromHash();
+  if(startPage) state.page = startPage;
+  render();
+})();
+</script>
+</body>
+</html>
