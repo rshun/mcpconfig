@@ -121,7 +121,9 @@ entries:
 
 ## 发布（编译在 GitHub 上）
 
-打 tag 即发布，无需本地编译：
+发布工作流先在 `dev` 预构建并验证产物，再由同一提交的 tag 创建 Release，无需本地编译。
+修改发布工作流或 `docs/releases/` 下的版本说明并推送 `dev`，会触发预构建；
+须等 `Release` 工作流成功且包含 `release-assets` 制品后，再在该提交打标签：
 
 ```bash
 git tag v0.1.0
@@ -138,8 +140,14 @@ GitHub Actions 会产出：
 | `mcp-hub-v0.1.0-windows-x64.zip` / `-macos-arm64.tar.gz` | 命令行 |
 | `SHA256SUMS` | 全部产物的校验和 |
 
-CI 每次 PR 还会跑：格式、clippy、96 项测试、前端构建、桌面壳编译检查，
-以及一条**架构护栏**（断言 core/app 不依赖 tauri/clap）。
+另附 `customer-mcp.yaml` 示例清单。桌面安装后请在顶部清单输入框填写自有清单或下载示例的绝对路径。
+发布前的测试、构建、安装包生成与校验均在 GitHub Actions 执行。
+标签任务核对版本号和提交，复用相同提交的预构建产物，先上传至草稿 Release，
+确认文件集合、大小及可用的服务端摘要匹配后才正式发布。缺少匹配预构建或制品已过期时会停止发布。
+版本说明与已知限制见 [`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md)。
+
+CI 在 `dev` 推送、提交到 `master` 的 PR 及发布预构建时运行：Windows/Linux 各 104 项 Rust 测试、
+6 项前端测试、1 项真实浏览器回归测试、前端构建和 Windows 桌面编译检查。
 
 ## 构建前置条件
 

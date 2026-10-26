@@ -1,0 +1,291 @@
+name: Release
+
+on:
+  push:
+    branches: [dev]
+    tags: ['v*']
+    paths:
+      - '.github/workflows/release.yml'
+      - '.github/workflows/ci.yml'
+      - 'docs/releases/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    name: Verify version and release source
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      candidate_run: ${{ steps.version.outputs.candidate_run }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, re, subprocess, tomllib
+
+          root = pathlib.Path('.')
+          version = tomllib.loads((root / 'Cargo.toml').read_text())['workspace']['package']['version']
+          if not re.fullmatch(r'\d+\.\d+\.\d+', version):
+              raise SystemExit('Release requires a stable semantic version')
+          for filename in ['apps/web/package.json', 'apps/web/src-tauri/tauri.conf.json', 'apps/web/package-lock.json']:
+              if json.loads((root / filename).read_text())['version'] != version:
+                  raise SystemExit(f'Version mismatch: {filename}')
+          if not (root / f'docs/releases/v{version}.md').is_file():
+              raise SystemExit('Release notes are missing')
+
+          candidate_run = ''
+          if os.environ['GITHUB_REF_TYPE'] == 'tag':
+              if os.environ['GITHUB_REF_NAME'] != f'v{version}':
+                  raise SystemExit('Tag does not match the package version')
+              repository = os.environ['GITHUB_REPOSITORY']
+              sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+              def api(path):
+                  return json.loads(subprocess.check_output(['gh', 'api', path], text=True))
+              runs = api(f'repos/{repository}/actions/workflows/release.yml/runs?branch=dev&event=push&status=success&head_sha={sha}&per_page=20')
+              for run in runs['workflow_runs']:
+                  if run['head_sha'] != sha or run['conclusion'] != 'success':
+                      continue
+                  artifacts = api(f"repos/{repository}/actions/runs/{run['id']}/artifacts")
+                  if any(a['name'] == 'release-assets' and not a['expired'] for a in artifacts['artifacts']):
+                      candidate_run = str(run['id'])
+                      break
+              if not candidate_run:
+                  raise SystemExit('No successful dev release build with artifacts exists for this exact commit')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'version={version}\ncandidate_run={candidate_run}\n')
+          PY
+
+  validate:
+    if: github.ref_type != 'tag'
+    uses: ./.github/workflows/ci.yml
+
+  cli:
+    name: CLI (${{ matrix.platform }})
+    if: github.ref_type != 'tag'
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+            target: x86_64-unknown-linux-musl
+            rustflags: '-C linker=rust-lld'
+          - os: windows-latest
+            platform: windows-x64
+            target: x86_64-pc-windows-msvc
+            rustflags: ''
+          - os: macos-15
+            platform: macos-arm64
+            target: aarch64-apple-darwin
+            rustflags: ''
+    runs-on: ${{ matrix.os }}
+    env:
+      BUILD_TARGET: ${{ matrix.target }}
+      RELEASE_PLATFORM: ${{ matrix.platform }}
+      RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+      RUSTFLAGS: ${{ matrix.rustflags }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build locked CLI
+        shell: bash
+        run: cargo build --locked --release -p mcp-cli --target "$BUILD_TARGET"
+      - name: Smoke test and package CLI
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, pathlib, subprocess, tarfile, zipfile
+
+          platform = os.environ['RELEASE_PLATFORM']
+          binary_name = 'mcp-hub.exe' if platform == 'windows-x64' else 'mcp-hub'
+          binary = pathlib.Path('target', os.environ['BUILD_TARGET'], 'release', binary_name).resolve()
+          subprocess.run([str(binary), '--version'], check=True)
+          subprocess.run([str(binary), 'clients'], check=True)
+          if platform == 'linux-x64':
+              headers = subprocess.check_output(['readelf', '-l', str(binary)], text=True)
+              dynamic = subprocess.check_output(['readelf', '-d', str(binary)], text=True)
+              if 'INTERP' in headers or 'NEEDED' in dynamic:
+                  raise SystemExit('Linux CLI must be statically linked')
+          output = pathlib.Path('release-assets')
+          output.mkdir()
+          stem = f"mcp-hub-v{os.environ['RELEASE_VERSION']}-{platform}"
+          files = [(binary, binary_name), (pathlib.Path('README.md'), 'README.md'),
+                   (pathlib.Path('examples/customer-mcp.yaml'), 'examples/customer-mcp.yaml')]
+          if platform == 'windows-x64':
+              with zipfile.ZipFile(output / f'{stem}.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
+                  for source, name in files:
+                      archive.write(source, name)
+          else:
+              with tarfile.open(output / f'{stem}.tar.gz', 'w:gz') as archive:
+                  for source, name in files:
+                      archive.add(source, arcname=name)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: binary-cli-${{ matrix.platform }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+  gui:
+    name: GUI (${{ matrix.platform }})
+    if: github.ref_type != 'tag'
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+            target: x86_64-pc-windows-msvc
+            bundle: nsis
+            suffix: x64-setup.exe
+          - os: macos-15
+            platform: macos-arm64
+            target: aarch64-apple-darwin
+            bundle: dmg
+            suffix: aarch64.dmg
+    runs-on: ${{ matrix.os }}
+    env:
+      BUILD_TARGET: ${{ matrix.target }}
+      BUNDLE_KIND: ${{ matrix.bundle }}
+      RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+      RELEASE_SUFFIX: ${{ matrix.suffix }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Restore locked frontend dependencies
+        working-directory: apps/web
+        run: npm ci
+      - name: Build unsigned desktop installer
+        working-directory: apps/web
+        shell: bash
+        run: npm run tauri -- build --ci --no-sign --target "$BUILD_TARGET" --bundles "$BUNDLE_KIND" -- --locked
+      - name: Collect installer
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, pathlib, shutil
+
+          bundle = os.environ['BUNDLE_KIND']
+          source = pathlib.Path('target', os.environ['BUILD_TARGET'], 'release', 'bundle', bundle)
+          matches = list(source.glob('*-setup.exe' if bundle == 'nsis' else '*.dmg'))
+          if len(matches) != 1:
+              raise SystemExit(f'Expected one {bundle} installer, found {len(matches)}')
+          output = pathlib.Path('release-assets')
+          output.mkdir()
+          name = f"MCP Hub_{os.environ['RELEASE_VERSION']}_{os.environ['RELEASE_SUFFIX']}"
+          shutil.copy2(matches[0], output / name)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: binary-gui-${{ matrix.platform }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+  assemble:
+    name: Verify release assets and checksums
+    needs: [metadata, validate, cli, gui]
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: binary-*
+          merge-multiple: true
+          path: release-assets
+      - name: Verify asset set and generate SHA256SUMS
+        run: |
+          python - <<'PY'
+          import hashlib, os, pathlib, shutil
+
+          version = os.environ['RELEASE_VERSION']
+          output = pathlib.Path('release-assets')
+          shutil.copy2('examples/customer-mcp.yaml', output / 'customer-mcp.yaml')
+          expected = {
+              f'mcp-hub-v{version}-linux-x64.tar.gz', f'mcp-hub-v{version}-windows-x64.zip',
+              f'mcp-hub-v{version}-macos-arm64.tar.gz', f'MCP Hub_{version}_x64-setup.exe',
+              f'MCP Hub_{version}_aarch64.dmg', 'customer-mcp.yaml',
+          }
+          if {p.name for p in output.iterdir()} != expected:
+              raise SystemExit('Release asset set does not match the expected platforms')
+          lines = [f"{hashlib.sha256((output / name).read_bytes()).hexdigest()}  {name}\n" for name in sorted(expected)]
+          (output / 'SHA256SUMS').write_text(''.join(lines))
+          PY
+          cd release-assets
+          sha256sum --check SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-assets
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish verified tag
+    if: github.ref_type == 'tag'
+    needs: metadata
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-assets
+          path: release-assets
+          run-id: ${{ needs.metadata.outputs.candidate_run }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify downloaded checksums
+        working-directory: release-assets
+        run: sha256sum --check SHA256SUMS
+      - name: Create draft with all verified assets
+        run: gh release create "$RELEASE_TAG" release-assets/* --verify-tag --draft --title "MCP Hub $RELEASE_TAG" --notes-file "docs/releases/$RELEASE_TAG.md"
+      - name: Verify uploaded assets before publishing
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > release-manifest.json
+          python - <<'PY'
+          import hashlib, json, pathlib
+
+          release = json.loads(pathlib.Path('release-manifest.json').read_text())
+          files = {p.name: p for p in pathlib.Path('release-assets').iterdir()}
+          if not release['draft'] or {a['name'] for a in release['assets']} != set(files):
+              raise SystemExit('Draft release has an unexpected asset set')
+          for asset in release['assets']:
+              file = files[asset['name']]
+              if asset['size'] != file.stat().st_size:
+                  raise SystemExit(f"Asset size mismatch: {asset['name']}")
+              digest = 'sha256:' + hashlib.sha256(file.read_bytes()).hexdigest()
+              if asset.get('digest') and asset['digest'] != digest:
+                  raise SystemExit(f"Asset digest mismatch: {asset['name']}")
+          PY
+      - name: Publish complete release
+        run: gh release edit "$RELEASE_TAG" --draft=false
