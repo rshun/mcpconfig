@@ -142,28 +142,28 @@ entries:
 须等 `Release` 工作流成功且包含 `release-assets` 制品后，再在该提交打标签：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 GitHub Actions 会产出：
 
 | 产物 | 平台 |
 |---|---|
-| `MCP Hub_0.1.0_x64-setup.exe` | Windows 图形界面（未签名） |
-| `MCP Hub_0.1.0_aarch64.dmg` | macOS 图形界面（未签名，首次打开需右键「打开」） |
-| `mcp-hub-v0.1.0-linux-x64.tar.gz` | Linux 命令行（musl 静态，免依赖） |
-| `mcp-hub-v0.1.0-windows-x64.zip` / `-macos-arm64.tar.gz` | 命令行 |
+| `MCP.Hub_0.1.1_x64-setup.exe` | Windows 图形界面（未签名） |
+| `MCP.Hub_0.1.1_aarch64.dmg` | macOS 图形界面（未签名，首次打开需右键「打开」） |
+| `mcp-hub-v0.1.1-linux-x64.tar.gz` | Linux 命令行（musl 静态，免依赖） |
+| `mcp-hub-v0.1.1-windows-x64.zip` / `-macos-arm64.tar.gz` | 命令行 |
 | `SHA256SUMS` | 全部产物的校验和 |
 
 另附 `customer-mcp.yaml` 示例清单。桌面安装后请在顶部清单输入框填写自有清单或下载示例的绝对路径。
 发布前的测试、构建、安装包生成与校验均在 GitHub Actions 执行。
 标签任务核对版本号和提交，复用相同提交的预构建产物，先上传至草稿 Release，
 确认文件集合、大小及可用的服务端摘要匹配后才正式发布。缺少匹配预构建或制品已过期时会停止发布。
-版本说明与已知限制见 [`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md)。
+版本说明与已知限制见 [`docs/releases/v0.1.1.md`](docs/releases/v0.1.1.md)。
 
-CI 在 `dev` 推送、提交到 `master` 的 PR 及发布预构建时运行：Windows/Linux 各 104 项 Rust 测试、
-6 项前端测试、1 项真实浏览器回归测试、前端构建和 Windows 桌面编译检查。
+CI 在 `dev` 推送、提交到 `master` 的 PR 及发布预构建时运行：Windows/Linux 各 111 项 Rust 测试、
+7 项前端测试、1 项真实浏览器回归测试、前端构建和 Windows 桌面编译检查。
 
 ## 构建前置条件
 

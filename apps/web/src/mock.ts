@@ -250,7 +250,7 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
   switch (cmd) {
     case "app_info":
       return {
-        version: "0.1.0",
+        version: "0.1.1",
         platform: "windows",
         home: "C:/Users/Chensh",
         projectRoot: "C:/Dev/mcpconfig",
