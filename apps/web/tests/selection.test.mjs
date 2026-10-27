@@ -103,3 +103,14 @@ test("浏览器演示拒绝缺失、未知或作用域错误的选择", async ()
     await assert.rejects(mockCall("apply", args));
   }
 });
+
+test("读取已有 Agent MCP 的 IPC 不需要清单路径，也不触发写入", async () => {
+  calls.length = 0;
+  await api.readClientConfig("codex", "user");
+  assert.deepEqual(calls, [{ command: "read_client_config", args: { clientId: "codex", scope: "user" } }]);
+  const shown = await mockCall("read_client_config", { clientId: "codex", scope: "user" });
+  assert.equal(shown.clientId, "codex");
+  assert.equal(shown.entries[0].config.env.API_KEY, "[已隐藏]");
+  await assert.rejects(mockCall("read_client_config", { clientId: "unknown", scope: "user" }));
+  await assert.rejects(mockCall("read_client_config", { clientId: "codex", scope: "local" }));
+});

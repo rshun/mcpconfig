@@ -3,10 +3,51 @@
 //! 刻意与内部类型解耦：前端只依赖这些结构，内部重构不影响 UI。
 
 use mcp_app::detect::{ClientStatus, DetectState};
+use mcp_app::inspect::ExistingConfig;
 use mcp_app::{CellState, MatrixView};
 use mcp_core::plan::{ChangeKind, FilePlan};
 use mcp_io::{ApplyReceipt, OutcomeStatus};
 use serde::Serialize;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExistingEntryDto {
+    pub name: String,
+    pub config: serde_json::Value,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExistingConfigDto {
+    pub client_id: String,
+    pub client_name: String,
+    pub scope: String,
+    pub path: String,
+    pub format: String,
+    pub existed: bool,
+    pub entries: Vec<ExistingEntryDto>,
+}
+
+impl From<ExistingConfig> for ExistingConfigDto {
+    fn from(config: ExistingConfig) -> Self {
+        Self {
+            client_id: config.client_id,
+            client_name: config.client_name,
+            scope: config.scope.as_str().to_string(),
+            path: config.path,
+            format: config.format.to_string(),
+            existed: config.existed,
+            entries: config
+                .entries
+                .into_iter()
+                .map(|entry| ExistingEntryDto {
+                    name: entry.name,
+                    config: entry.config,
+                })
+                .collect(),
+        }
+    }
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

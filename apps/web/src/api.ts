@@ -4,6 +4,7 @@ import type {
   BackupDto,
   CatalogDto,
   ClientDto,
+  ExistingConfigDto,
   MatrixDto,
   PlanInput,
   PlanDto,
@@ -29,6 +30,8 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
 export const api = {
   appInfo: () => call<AppInfoDto>("app_info"),
   detect: (scope: Scope) => call<ClientDto[]>("detect", { scope }),
+  readClientConfig: (clientId: string, scope: Scope) =>
+    call<ExistingConfigDto>("read_client_config", { clientId, scope }),
   matrix: (catalogPath: string, scope: Scope) =>
     call<MatrixDto>("matrix", { catalogPath, scope }),
   loadCatalog: (path: string) => call<CatalogDto>("load_catalog", { path }),

@@ -147,6 +147,29 @@ impl ConfigDoc {
         }
     }
 
+    /// 只读提取 MCP 容器，区分缺失与错误结构；支持 TOML 内联表。
+    pub fn entries(&self, root: &[String]) -> Result<JsonMap<String, Value>> {
+        let value = match self {
+            ConfigDoc::Json(v) => v.clone(),
+            ConfigDoc::Toml(doc) => table_to_json(doc.as_table()),
+            _ => return Ok(JsonMap::new()),
+        };
+        let mut current = &value;
+        for segment in root {
+            let object = current
+                .as_object()
+                .ok_or_else(|| Error::Parse("MCP 容器不是对象".into()))?;
+            match object.get(segment) {
+                Some(next) => current = next,
+                None => return Ok(JsonMap::new()),
+            }
+        }
+        current
+            .as_object()
+            .cloned()
+            .ok_or_else(|| Error::Parse("MCP 容器不是对象".into()))
+    }
+
     /// 写入单条目，返回变更类型。**内容一致时不做任何修改**（幂等）。
     pub fn upsert(
         &mut self,
@@ -368,7 +391,7 @@ fn json_to_toml_value(v: &Value) -> Option<TomlValue> {
 /// 去掉 JSONC 的注释与尾逗号（正确跳过字符串内部）。
 pub fn strip_jsonc(src: &str) -> String {
     let bytes = src.as_bytes();
-    let mut out = String::with_capacity(src.len());
+    let mut out = Vec::with_capacity(src.len());
     let mut i = 0;
     let mut in_str = false;
     let mut esc = false;
@@ -376,7 +399,7 @@ pub fn strip_jsonc(src: &str) -> String {
     while i < bytes.len() {
         let c = bytes[i];
         if in_str {
-            out.push(c as char);
+            out.push(c);
             if esc {
                 esc = false;
             } else if c == b'\\' {
@@ -390,7 +413,7 @@ pub fn strip_jsonc(src: &str) -> String {
         match c {
             b'"' => {
                 in_str = true;
-                out.push('"');
+                out.push(b'"');
                 i += 1;
             }
             b'/' if i + 1 < bytes.len() && bytes[i + 1] == b'/' => {
@@ -406,17 +429,17 @@ pub fn strip_jsonc(src: &str) -> String {
                 i = (i + 2).min(bytes.len());
             }
             _ => {
-                out.push(c as char);
+                out.push(c);
                 i += 1;
             }
         }
     }
-    strip_trailing_commas(&out)
+    strip_trailing_commas(&String::from_utf8(out).expect("仅去除 ASCII 注释，不改变 UTF-8"))
 }
 
 fn strip_trailing_commas(src: &str) -> String {
     let bytes = src.as_bytes();
-    let mut out = String::with_capacity(src.len());
+    let mut out = Vec::with_capacity(src.len());
     let mut i = 0;
     let mut in_str = false;
     let mut esc = false;
@@ -424,7 +447,7 @@ fn strip_trailing_commas(src: &str) -> String {
     while i < bytes.len() {
         let c = bytes[i];
         if in_str {
-            out.push(c as char);
+            out.push(c);
             if esc {
                 esc = false;
             } else if c == b'\\' {
@@ -437,7 +460,7 @@ fn strip_trailing_commas(src: &str) -> String {
         }
         if c == b'"' {
             in_str = true;
-            out.push('"');
+            out.push(b'"');
             i += 1;
             continue;
         }
@@ -451,10 +474,10 @@ fn strip_trailing_commas(src: &str) -> String {
                 continue;
             }
         }
-        out.push(c as char);
+        out.push(c);
         i += 1;
     }
-    out
+    String::from_utf8(out).expect("仅去除 ASCII 尾逗号，不改变 UTF-8")
 }
 
 /// 检测文本是否含注释或尾逗号（JSONC 特征）。

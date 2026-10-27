@@ -279,6 +279,21 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
         };
       }) as T;
 
+    case "read_client_config": {
+      const client = CLIENTS.find(([id]) => id === args?.clientId);
+      if (!client) throw new Error("未知客户端");
+      if (!STYLES[client[0]].scopes.includes(scope) || (client[0] === "claude-code" && scope === "local")) {
+        throw new Error("不支持当前作用域");
+      }
+      return {
+        clientId: client[0], clientName: client[1], scope,
+        path: `~/${client[0]}/mcp.json`, format: client[3], existed: true,
+        entries: [{ name: "example-mcp", config: {
+          command: "python", args: ["[已隐藏]"], env: { API_KEY: "[已隐藏]" },
+        } }],
+      } as T;
+    }
+
     case "matrix": {
       const rows = ENTRIES.filter((e) => effScope(e, scope) === scope).map((e) => ({
         name: e.name,

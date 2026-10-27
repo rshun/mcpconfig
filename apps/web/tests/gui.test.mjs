@@ -18,7 +18,7 @@ async function until(read, description) {
 }
 
 // 使用 GitHub Ubuntu runner 自带 Chrome 和 CDP，无需额外浏览器测试依赖。
-test("真实 GUI 保留配对、使旧预览失效，并按预览选择发出写入请求", { timeout: 60000 }, async (t) => {
+test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 60000 }, async (t) => {
   const preview = spawn(process.execPath, [
     "node_modules/vite/bin/vite.js", "preview", "--host", "127.0.0.1", "--port", "4173", "--strictPort",
   ], { stdio: "ignore" });
@@ -79,14 +79,29 @@ test("真实 GUI 保留配对、使旧预览失效，并按预览选择发出写
         window.testCalls.push({ command, args: structuredClone(args) });
         switch (command) {
           case "app_info": return { version: "test", platform: "windows", dataDir: "test-only" };
-          case "detect": return clients.map((c) => ({ ...c, state: "ready" }));
-          case "matrix": return {
+          case "detect": return clients.map((c) => ({ ...c, state: "ready", configured: 1, path: "test-only",
+            scopeBlock: args.scope === "local" ? "不支持当前作用域" : null }));
+          case "read_client_config": {
+            if (window.failRead) throw new Error("配置解析失败；未显示原文");
+            if (window.delayRead) await new Promise((resolve) => { window.releaseRead = resolve; });
+            return {
+              clientId: args.clientId, clientName: args.clientId, scope: args.scope,
+              path: `${args.clientId}/config.test`, format: "JSON", existed: !window.missingConfig,
+              entries: window.missingConfig ? [] : [{ name: `${args.clientId}-已有服务`, config: {
+                command: "python", args: ["[已隐藏]"], env: { API_KEY: "[已隐藏]" },
+              } }],
+            };
+          }
+          case "matrix": {
+            if (window.failMatrix) throw new Error("清单不存在（测试）");
+            return {
             platform: "windows", scope: args.scope, clients, issues: [],
             rows: ["alpha", "beta"].map((name) => ({
               name, transport: "stdio", scope: args.scope,
               cells: ids.map((clientId) => ({ clientId, state: "absent", detail: null })),
             })),
-          };
+            };
+          }
           case "load_catalog": return { catalog: { version: 1, entries: [] }, issues: [], entryCount: 0 };
           case "backups": return [];
           case "plan": {
@@ -157,4 +172,50 @@ test("真实 GUI 保留配对、使旧预览失效，并按预览选择发出写
   await until(() => evaluate("window.testCalls.some((c) => c.command === 'apply')"), "写入 IPC");
   const applied = await evaluate("window.testCalls.find((c) => c.command === 'apply').args");
   assert.deepEqual(applied, { ...planned, dryRun: false });
+
+  await until(() => evaluate("document.querySelector('h1')?.textContent === '备份与回滚'"), "应用流程结束");
+  const mutations = await evaluate("window.testCalls.filter((c) => ['apply','save_catalog','restore'].includes(c.command)).length");
+  await button("环境检测");
+  // 按行选择客户端，避免同名操作按钮被错误定位。
+  const readClient = (index) => evaluate(`document.querySelectorAll('table.grid tbody tr')[${index}].querySelector('button').click()`);
+  await readClient(1);
+  await until(() => evaluate("document.querySelector('[aria-label=\"已有 MCP 配置\"]')?.textContent.includes('codex-已有服务')"), "读取 Codex 已有条目");
+  await evaluate("document.querySelector('[aria-label=\"已有 MCP 配置\"] summary').click()");
+  assert.equal(await evaluate("document.querySelector('[aria-label=\"已有 MCP 配置\"] details').open"), true);
+  assert.equal(await evaluate("document.querySelector('[aria-label=\"已有 MCP 配置\"] pre').textContent.includes('[已隐藏]')"), true);
+  const readArgs = await evaluate("window.testCalls.filter((c) => c.command === 'read_client_config').at(-1).args");
+  assert.deepEqual(readArgs, { clientId: "codex", scope: "user" });
+
+  await evaluate("window.delayRead = true");
+  await readClient(0);
+  await until(() => evaluate("typeof window.releaseRead === 'function'"), "延迟读取");
+  await evaluate("window.delayRead = false");
+  await readClient(1);
+  await until(() => evaluate("document.querySelector('[aria-label=\"已有 MCP 配置\"]')?.textContent.includes('codex-已有服务')"), "后一次读取完成");
+  await evaluate("window.releaseRead()");
+  await pause(150);
+  assert.equal(await evaluate("document.querySelector('[aria-label=\"已有 MCP 配置\"]')?.textContent.includes('claude-code-已有服务')"), false);
+
+  await evaluate("window.failRead = true");
+  await readClient(0);
+  await until(() => evaluate("document.body.textContent.includes('配置解析失败')"), "读取错误提示");
+  assert.equal(await evaluate("document.querySelector('[aria-label=\"已有 MCP 配置\"]') === null"), true);
+  await evaluate("window.failRead = false; window.missingConfig = true");
+  await readClient(0);
+  await until(() => evaluate("document.body.textContent.includes('配置文件尚不存在')"), "缺失配置状态");
+
+  await evaluate("window.missingConfig = false; window.delayRead = true; window.releaseRead = null");
+  await readClient(0);
+  await until(() => evaluate("typeof window.releaseRead === 'function'"), "作用域切换前的读取");
+  await evaluate("const scope = document.querySelectorAll('.topbar select')[0]; scope.value = 'project'; scope.dispatchEvent(new Event('change', { bubbles: true }))");
+  await evaluate("window.delayRead = false; window.releaseRead()");
+  await pause(150);
+  assert.equal(await evaluate("document.querySelector('[aria-label=\"已有 MCP 配置\"]') === null"), true);
+
+  await evaluate("window.failMatrix = true");
+  await button("加载");
+  await until(() => evaluate("document.body.textContent.includes('清单不存在（测试）')"), "清单加载失败");
+  await readClient(1);
+  await until(() => evaluate("document.querySelector('[aria-label=\"已有 MCP 配置\"]')?.textContent.includes('codex-已有服务')"), "没有清单仍能读取已有配置");
+  assert.equal(await evaluate("window.testCalls.filter((c) => ['apply','save_catalog','restore'].includes(c.command)).length"), mutations);
 });

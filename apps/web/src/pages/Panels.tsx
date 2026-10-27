@@ -1,4 +1,6 @@
-import type { BackupDto, ClientDto, ReceiptDto } from "../types";
+import { useEffect, useRef, useState } from "react";
+import { api } from "../api";
+import type { BackupDto, ClientDto, ExistingConfigDto, ReceiptDto, Scope } from "../types";
 import { Banner, Empty, Pill } from "../components/ui";
 
 const STATE_TONE: Record<string, "ok" | "warn" | "info" | "danger" | "plain"> = {
@@ -8,7 +10,34 @@ const STATE_TONE: Record<string, "ok" | "warn" | "info" | "danger" | "plain"> = 
   missing: "plain",
 };
 
-export function DetectPage({ clients }: { clients: ClientDto[] | null }) {
+export function DetectPage({ clients, scope }: { clients: ClientDto[] | null; scope: Scope }) {
+  const [config, setConfig] = useState<ExistingConfigDto | null>(null);
+  const [reading, setReading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const revision = useRef(0);
+  useEffect(() => {
+    revision.current += 1;
+    setConfig(null);
+    setReading(null);
+    setError(null);
+    return () => { revision.current += 1; };
+  }, [clients]);
+
+  async function readConfig(clientId: string) {
+    const request = ++revision.current;
+    setReading(clientId);
+    setConfig(null);
+    setError(null);
+    try {
+      const result = await api.readClientConfig(clientId, scope);
+      if (request === revision.current) setConfig(result);
+    } catch (e) {
+      if (request === revision.current) setError(String(e));
+    } finally {
+      if (request === revision.current) setReading(null);
+    }
+  }
+
   if (!clients) return <Empty title="正在检测…" />;
 
   const ready = clients.filter((c) => c.state === "ready").length;
@@ -31,6 +60,7 @@ export function DetectPage({ clients }: { clients: ClientDto[] | null }) {
               <th>已配置</th>
               <th>可执行文件</th>
               <th>配置路径</th>
+              <th />
             </tr>
           </thead>
           <tbody>
@@ -57,11 +87,42 @@ export function DetectPage({ clients }: { clients: ClientDto[] | null }) {
                 <td className="mono muted" style={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={c.path ?? ""}>
                   {c.path ?? "—"}
                 </td>
+                <td>
+                  <button className="btn small" disabled={!!c.scopeBlock}
+                    title={c.scopeBlock ?? `查看 ${c.name} 的已有 MCP`}
+                    onClick={() => readConfig(c.id)}>
+                    {reading === c.id ? "读取中…" : "查看 MCP"}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {error && <Banner tone="danger">{error}</Banner>}
+      {config && (
+        <section className="panel" aria-label="已有 MCP 配置" style={{ marginBottom: 16 }}>
+          <div className="panel-head">
+            <b>{config.clientName} · 已有 MCP（{config.entries.length}）</b>
+            <span className="pill">{config.format}</span>
+          </div>
+          <div className="panel-body">
+            <div className="mono" style={{ overflowWrap: "anywhere", marginBottom: 12 }}>{config.path}</div>
+            {!config.existed ? <Empty title="配置文件尚不存在" /> : config.entries.length === 0 ? (
+              <Empty title="配置文件中没有 MCP 条目" />
+            ) : config.entries.map((entry) => (
+              <details key={entry.name} style={{ marginBottom: 10 }}>
+                <summary>{entry.name}</summary>
+                <pre className="mono" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                  {JSON.stringify(entry.config, null, 2)}
+                </pre>
+              </details>
+            ))}
+            <p className="muted">只读查看。密钥、环境变量值、参数和地址等已隐藏；不会修改配置或导入清单。</p>
+          </div>
+        </section>
+      )}
 
       <Banner>
         未安装的客户端也允许写入（为 Bundle 分发与新机器预配置留路）。检测只回答「谁、在哪」，

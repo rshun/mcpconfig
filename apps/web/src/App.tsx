@@ -75,10 +75,15 @@ export default function App() {
       setLoading(true);
       setError(null);
       try {
-        const [m, c] = await Promise.all([api.matrix(path, sc), api.detect(sc)]);
-        setMatrix(m);
-        setClients(c);
+        // 检测和读取已有配置不依赖清单成功加载。
+        const [m, c] = await Promise.allSettled([api.matrix(path, sc), api.detect(sc)]);
+        if (c.status === "fulfilled") setClients(c.value);
+        else setClients(null);
+        if (m.status === "fulfilled") setMatrix(m.value);
+        else setMatrix(null);
         setSelected(new Set());
+        if (m.status === "rejected") throw m.reason;
+        if (c.status === "rejected") throw c.reason;
       } catch (e) {
         setError(String(e));
         setMatrix(null);
@@ -384,7 +389,7 @@ export default function App() {
             <DiffPage plan={plan} applying={applying} onApply={applyPlan} />
           )}
 
-          {page === "detect" && <DetectPage clients={clients} />}
+          {page === "detect" && <DetectPage key={scope} clients={clients} scope={scope} />}
 
           {page === "backups" && (
             <BackupsPage

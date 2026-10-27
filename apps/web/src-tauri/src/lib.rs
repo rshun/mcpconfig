@@ -11,6 +11,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
             commands::detect,
+            commands::read_client_config,
             commands::matrix,
             commands::load_catalog,
             commands::save_catalog,

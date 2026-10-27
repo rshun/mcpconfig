@@ -34,6 +34,16 @@ export interface CellDto {
   state: CellState;
   detail: string | null;
 }
+
+export interface ExistingConfigDto {
+  clientId: string;
+  clientName: string;
+  scope: Scope;
+  path: string;
+  format: string;
+  existed: boolean;
+  entries: { name: string; config: Record<string, unknown> }[];
+}
 export interface RowDto {
   name: string;
   transport: string;

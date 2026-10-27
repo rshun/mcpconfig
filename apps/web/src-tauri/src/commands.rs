@@ -3,8 +3,8 @@
 //! 这里不写业务逻辑；换宿主（Electron / Web）只需重写这一层。
 
 use crate::dto::{
-    AppInfoDto, BackupDto, CatalogDto, ClientDto, FileDto, MatrixDto, PlanDto, ReceiptDto,
-    SkippedDto,
+    AppInfoDto, BackupDto, CatalogDto, ClientDto, ExistingConfigDto, FileDto, MatrixDto, PlanDto,
+    ReceiptDto, SkippedDto,
 };
 use mcp_app::{App, PlanRequest};
 use mcp_core::model::Scope;
@@ -63,6 +63,15 @@ pub fn detect(scope: String) -> Result<Vec<ClientDto>, String> {
         .into_iter()
         .map(ClientDto::from)
         .collect())
+}
+
+/// 按预定义路径只读查看已有 MCP；敏感值已经在应用层隐藏。
+#[tauri::command]
+pub fn read_client_config(client_id: String, scope: String) -> Result<ExistingConfigDto, String> {
+    app()
+        .read_client_config(&client_id, parse_scope(&scope)?)
+        .map(ExistingConfigDto::from)
+        .map_err(err)
 }
 
 /// 矩阵视图（只读）。
