@@ -8,14 +8,21 @@ on:
       - '.github/workflows/release.yml'
       - '.github/workflows/ci.yml'
       - 'docs/releases/**'
+      - 'scripts/publish_release.py'
+      - 'scripts/tests/**'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Resume publishing an existing verified tag; leave empty to build a candidate'
+        type: string
+        default: ''
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.release_tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -27,9 +34,12 @@ jobs:
       candidate_run: ${{ steps.version.outputs.candidate_run }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
       - id: version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_TAG: ${{ inputs.release_tag }}
         run: |
           python - <<'PY'
           import json, os, pathlib, re, subprocess, tomllib
@@ -45,8 +55,9 @@ jobs:
               raise SystemExit('Release notes are missing')
 
           candidate_run = ''
-          if os.environ['GITHUB_REF_TYPE'] == 'tag':
-              if os.environ['GITHUB_REF_NAME'] != f'v{version}':
+          tag = os.environ['REQUESTED_TAG'] or (os.environ['GITHUB_REF_NAME'] if os.environ['GITHUB_REF_TYPE'] == 'tag' else '')
+          if tag:
+              if tag != f'v{version}':
                   raise SystemExit('Tag does not match the package version')
               repository = os.environ['GITHUB_REPOSITORY']
               sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
@@ -67,12 +78,19 @@ jobs:
           PY
 
   validate:
-    if: github.ref_type != 'tag'
+    if: github.ref_type != 'tag' && inputs.release_tag == ''
     uses: ./.github/workflows/ci.yml
+
+  release-tests:
+    name: Release recovery tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: python -m unittest discover -s scripts/tests -v
 
   cli:
     name: CLI (${{ matrix.platform }})
-    if: github.ref_type != 'tag'
+    if: github.ref_type != 'tag' && inputs.release_tag == ''
     needs: metadata
     strategy:
       fail-fast: false
@@ -143,7 +161,7 @@ jobs:
 
   gui:
     name: GUI (${{ matrix.platform }})
-    if: github.ref_type != 'tag'
+    if: github.ref_type != 'tag' && inputs.release_tag == ''
     needs: metadata
     strategy:
       fail-fast: false
@@ -195,7 +213,7 @@ jobs:
               raise SystemExit(f'Expected one {bundle} installer, found {len(matches)}')
           output = pathlib.Path('release-assets')
           output.mkdir()
-          name = f"MCP Hub_{os.environ['RELEASE_VERSION']}_{os.environ['RELEASE_SUFFIX']}"
+          name = f"MCP.Hub_{os.environ['RELEASE_VERSION']}_{os.environ['RELEASE_SUFFIX']}"
           shutil.copy2(matches[0], output / name)
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -207,7 +225,7 @@ jobs:
 
   assemble:
     name: Verify release assets and checksums
-    needs: [metadata, validate, cli, gui]
+    needs: [metadata, validate, release-tests, cli, gui]
     runs-on: ubuntu-latest
     env:
       RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
@@ -228,8 +246,8 @@ jobs:
           shutil.copy2('examples/customer-mcp.yaml', output / 'customer-mcp.yaml')
           expected = {
               f'mcp-hub-v{version}-linux-x64.tar.gz', f'mcp-hub-v{version}-windows-x64.zip',
-              f'mcp-hub-v{version}-macos-arm64.tar.gz', f'MCP Hub_{version}_x64-setup.exe',
-              f'MCP Hub_{version}_aarch64.dmg', 'customer-mcp.yaml',
+              f'mcp-hub-v{version}-macos-arm64.tar.gz', f'MCP.Hub_{version}_x64-setup.exe',
+              f'MCP.Hub_{version}_aarch64.dmg', 'customer-mcp.yaml',
           }
           if {p.name for p in output.iterdir()} != expected:
               raise SystemExit('Release asset set does not match the expected platforms')
@@ -247,17 +265,21 @@ jobs:
 
   publish:
     name: Publish verified tag
-    if: github.ref_type == 'tag'
-    needs: metadata
+    if: github.ref_type == 'tag' || inputs.release_tag != ''
+    needs: [metadata, release-tests]
     runs-on: ubuntu-latest
     permissions:
       contents: write
       actions: read
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      RELEASE_TAG: ${{ github.ref_name }}
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+          path: release-source
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: release-assets
@@ -267,25 +289,5 @@ jobs:
       - name: Verify downloaded checksums
         working-directory: release-assets
         run: sha256sum --check SHA256SUMS
-      - name: Create draft with all verified assets
-        run: gh release create "$RELEASE_TAG" release-assets/* --verify-tag --draft --title "MCP Hub $RELEASE_TAG" --notes-file "docs/releases/$RELEASE_TAG.md"
-      - name: Verify uploaded assets before publishing
-        run: |
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > release-manifest.json
-          python - <<'PY'
-          import hashlib, json, pathlib
-
-          release = json.loads(pathlib.Path('release-manifest.json').read_text())
-          files = {p.name: p for p in pathlib.Path('release-assets').iterdir()}
-          if not release['draft'] or {a['name'] for a in release['assets']} != set(files):
-              raise SystemExit('Draft release has an unexpected asset set')
-          for asset in release['assets']:
-              file = files[asset['name']]
-              if asset['size'] != file.stat().st_size:
-                  raise SystemExit(f"Asset size mismatch: {asset['name']}")
-              digest = 'sha256:' + hashlib.sha256(file.read_bytes()).hexdigest()
-              if asset.get('digest') and asset['digest'] != digest:
-                  raise SystemExit(f"Asset digest mismatch: {asset['name']}")
-          PY
-      - name: Publish complete release
-        run: gh release edit "$RELEASE_TAG" --draft=false
+      - name: Resume draft, verify assets and publish
+        run: python scripts/publish_release.py
