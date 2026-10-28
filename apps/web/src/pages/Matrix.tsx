@@ -1,5 +1,6 @@
 import type { MatrixDto } from "../types";
 import { Empty } from "../components/ui";
+import { selectionFromCells } from "../selection";
 
 const SCOPE_LABEL: Record<string, string> = {
   user: "用户级",
@@ -37,8 +38,9 @@ export function MatrixPage({
   }
 
   const total = selected.size;
-  const rowCount = new Set([...selected].map((k) => k.split("::")[0])).size;
-  const colCount = new Set([...selected].map((k) => k.split("::")[1])).size;
+  const pairs = selectionFromCells(selected);
+  const rowCount = new Set(Object.values(pairs).flat()).size;
+  const colCount = Object.keys(pairs).length;
 
   return (
     <>

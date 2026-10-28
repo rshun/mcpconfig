@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ClientDto, MatrixDto } from "../types";
 import type { Entry } from "./Catalog";
 import { Empty } from "../components/ui";
+import { selectionFromCells } from "../selection";
 
 const STATUS = { ok: "已配置且一致", absent: "未配置", diff: "有差异", unsupported: "不支持" };
 
@@ -17,8 +18,9 @@ export function Workbench({ matrix, entries, clients, selected, onToggle, onPlan
   const row = rows.find((r) => r.name === focus) ?? rows[0];
   const target = matrix?.clients.find((c) => c.id === agent) ?? matrix?.clients[0];
   const entry = entries.find((e) => e.name === row?.name);
-  const chosen = new Set([...selected].map((key) => key.split("::")[0])).size;
-  const agents = new Set([...selected].map((key) => key.split("::")[1])).size;
+  const pairs = selectionFromCells(selected);
+  const chosen = new Set(Object.values(pairs).flat()).size;
+  const agents = Object.keys(pairs).length;
   return <>
     <div className="page-heading"><div><div className="eyebrow">MCP DISTRIBUTION</div><h1>配置工作台</h1>
       <p className="sub">选择一个 MCP，为它勾选目标 Agent。预览后再应用，未勾选的配置不会写入。</p></div>

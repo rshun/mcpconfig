@@ -64,6 +64,12 @@ impl HostEnv {
             s = s.replace("<proj>", &proj);
         }
 
+        // Windows canonicalize 产生 \\?\ 前缀，该路径模式只接受反斜线。
+        // 模板替换时的统一分隔符不能留在最终的 verbatim 路径中。
+        #[cfg(windows)]
+        if s.starts_with("//?/") {
+            s = s.replace('/', "\\");
+        }
         Some(PathBuf::from(s))
     }
 
@@ -142,5 +148,21 @@ mod tests {
             project_root: None,
         };
         assert!(e.expand("<proj>/.mcp.json", Platform::Linux).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn verbatim_project_and_unc_paths_preserve_windows_prefixes() {
+        for root in [r"\\?\C:\work\项目", r"\\?\UNC\host\share\项目"] {
+            let e = HostEnv {
+                project_root: Some(PathBuf::from(root)),
+                ..env()
+            };
+            assert_eq!(
+                e.expand("<proj>/.codex/config.toml", Platform::Windows)
+                    .unwrap(),
+                PathBuf::from(root).join(".codex").join("config.toml")
+            );
+        }
     }
 }

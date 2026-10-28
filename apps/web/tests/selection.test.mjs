@@ -107,10 +107,23 @@ test("浏览器演示拒绝缺失、未知或作用域错误的选择", async ()
 test("读取已有 Agent MCP 的 IPC 不需要清单路径，也不触发写入", async () => {
   calls.length = 0;
   await api.readClientConfig("codex", "user");
-  assert.deepEqual(calls, [{ command: "read_client_config", args: { clientId: "codex", scope: "user" } }]);
+  assert.deepEqual(calls, [{ command: "read_client_config", args: { clientId: "codex", scope: "user", projectRoot: null } }]);
   const shown = await mockCall("read_client_config", { clientId: "codex", scope: "user" });
   assert.equal(shown.clientId, "codex");
   assert.equal(shown.entries[0].config.env.API_KEY, "[已隐藏]");
   await assert.rejects(mockCall("read_client_config", { clientId: "unknown", scope: "user" }));
   await assert.rejects(mockCall("read_client_config", { clientId: "codex", scope: "local" }));
+});
+
+test("项目目录完整传入检测、矩阵和只读查看，设置独立保存", async () => {
+  calls.length = 0;
+  const projectRoot = "C:/test/中文项目";
+  await api.detect("project", projectRoot);
+  await api.matrix("C:/test/catalog.yaml", "project", projectRoot);
+  await api.readClientConfig("codex", "project", projectRoot);
+  assert.deepEqual(calls.map((call) => call.args.projectRoot), [projectRoot, projectRoot, projectRoot]);
+  assert.deepEqual(calls.map((call) => call.args.scope), ["project", "project", "project"]);
+  const settings = { version: 1, catalogPath: "C:/test/catalog.yaml", backupDir: "C:/test/backups", defaultScope: "user", defaultMode: "merge", lastProjectDir: projectRoot };
+  await api.saveSettings(settings);
+  assert.deepEqual(calls.at(-1), { command: "save_settings", args: { settings } });
 });

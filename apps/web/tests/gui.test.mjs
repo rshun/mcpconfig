@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
@@ -144,6 +144,7 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
     };
   }
   await send("Page.enable", {}, sessionId);
+  await send("Emulation.setDeviceMetricsOverride", { width: 1320, height: 860, deviceScaleFactor: 1, mobile: false }, sessionId);
   await send("Page.addScriptToEvaluateOnNewDocument", { source: `(${installFixture.toString()})()` }, sessionId);
   await send("Page.navigate", { url: "http://127.0.0.1:4173/?page=matrix" }, sessionId);
   await until(() => evaluate("document.querySelectorAll('.cell-btn').length === 4"), "矩阵加载");
@@ -155,6 +156,11 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
   const cell = (title) => evaluate(`document.querySelector(${JSON.stringify(`button[title="${title}"]`)}).click()`);
   const waitDiff = () => until(() => evaluate("document.querySelector('h1')?.textContent === '差异预览'"), "差异预览");
   const lastPlan = () => evaluate("window.testCalls.filter((c) => c.command === 'plan').at(-1).args");
+  async function screenshot(name) {
+    await mkdir("test-artifacts", { recursive: true });
+    const { data } = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false }, sessionId);
+    await writeFile(`test-artifacts/${name}.png`, Buffer.from(data, "base64"));
+  }
   const expected = { "claude-code": ["alpha"], codex: ["beta"] };
 
   await cell("alpha → Claude Code");
@@ -264,7 +270,9 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
   await evaluate("document.querySelector('[aria-label=\"alpha → Claude Code\"]').click()");
   await evaluate("[...document.querySelectorAll('.work-item')].find((b) => b.textContent.includes('beta')).click()");
   await evaluate("document.querySelector('[aria-label=\"beta → Codex CLI\"]').click()");
+  await screenshot("workbench-project");
   await button("按 Agent 查看");
+  await screenshot("workbench-agent");
   await button("预览变更");
   await waitDiff();
   assert.deepEqual((await lastPlan()).selection, expected);
@@ -304,4 +312,5 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
   assert.equal(restored.projectRoot, "C:/test/中文项目");
   await button("全局设置");
   assert.equal(await evaluate("document.querySelector('[aria-label=\"备份目录\"]').value"), "C:/test/new-backups");
+  await screenshot("global-settings");
 });

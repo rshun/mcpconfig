@@ -10,7 +10,7 @@
 |---|---|
 | `mcp-core`：IR、清单解析、插值、平台覆盖、14 个适配器 | ✅ 实现，69 项测试 |
 | `mcp-io`：备份 / 原子写 / 写后校验 / 回滚 / 审计 | ✅ 实现，20 项测试 |
-| `mcp-app` 应用服务层（检测 / 计划 / 应用 / 备份 / 软件设置） | ✅ 实现，44 项测试 |
+| `mcp-app` 应用服务层（检测 / 计划 / 应用 / 备份 / 软件设置） | ✅ 实现，包含持久化与项目隔离回归测试 |
 | `mcp-hub` CLI（doctor / diff / apply / backups / restore） | ✅ 实现，可执行 |
 | GUI 前端（React + TS，配置工作台） | ✅ MCP / Agent 两种视角，独立全局与项目范围，持久化软件设置 |
 | GUI 桌面壳（Tauri v2 薄适配） | ✅ Windows / macOS 安装包，由 GitHub Actions 验证与构建 |
