@@ -748,6 +748,10 @@ h2 { font-size: 23px; margin: 12px 0 6px; }
 .detail-note { padding: 17px; background: #f6f9fa; border: 1px solid #e7edef; border-radius: 9px; font-size: 12px; margin: 18px 0; overflow-wrap: anywhere; }
 .detail-note p { margin: 9px 0; color: var(--text-2); }
 .work-targets { padding: 23px 18px; border-left: 1px solid var(--line); }
+.content.workbench-page { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 14px; }
+.workbench-page > .banner, .workbench-page > .catalog-bar, .workbench-page > .page-heading, .workbench-page > .work-toolbar, .workbench-page > .bottombar { flex-shrink: 0; }
+.workbench-page .workbench { flex: 1; min-height: 180px; }
+.workbench-page .work-list, .workbench-page .work-detail, .workbench-page .work-targets { min-height: 0; overflow-y: auto; }
 .section-label { font-weight: 600; margin-bottom: 17px; }
 .target { display: flex; align-items: center; gap: 12px; padding: 11px 9px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; }
 .target input { accent-color: var(--accent); width: 16px; height: 16px; flex: 0 0 auto; }

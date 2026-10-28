@@ -87,6 +87,7 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
     window.testCalls = [];
     window.__TAURI_INTERNALS__ = {
       async invoke(command, args) {
+        const activeClients = window.manyClients ? clients.concat(Array.from({ length: 12 }, (_, i) => ({ id: `test-agent-${i}`, name: `Example Agent ${i + 1}`, kind: "IDE" }))) : clients;
         window.testCalls.push({ command, args: structuredClone(args) });
         switch (command) {
           case "load_settings": return JSON.parse(sessionStorage.getItem("fixtureSettings") || "null") || { version: 1, catalogPath: "C:/test/catalog.yaml", backupDir: "C:/test/backups", defaultScope: "user", defaultMode: "merge", lastProjectDir: null };
@@ -97,7 +98,7 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
           case "choose_directory": return window.cancelDirectory ? null : "C:/test/中文项目";
           case "create_catalog": return [];
           case "app_info": return { version: "test", platform: "windows", dataDir: "test-only" };
-          case "detect": return clients.map((c) => ({ ...c, state: "ready", configured: 1, path: "test-only",
+          case "detect": return activeClients.map((c) => ({ ...c, state: "ready", configured: 1, path: "test-only",
             scopeBlock: args.scope === "local" ? "不支持当前作用域" : null }));
           case "read_client_config": {
             if (window.failRead) throw new Error("配置解析失败；未显示原文");
@@ -113,10 +114,10 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
           case "matrix": {
             if (window.failMatrix) throw new Error("清单不存在（测试）");
             return {
-            platform: "windows", scope: args.scope, clients, issues: [],
+            platform: "windows", scope: args.scope, clients: activeClients, issues: [],
             rows: ["alpha", "beta"].map((name) => ({
               name, transport: "stdio", scope: args.scope,
-              cells: ids.map((clientId) => ({ clientId, state: "absent", detail: null })),
+              cells: activeClients.map(({ id: clientId }) => ({ clientId, state: "absent", detail: null })),
             })),
             };
           }
@@ -266,7 +267,7 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
 
   // 工作台的两种视角共用逐对勾选，不能扩展成交叉组合。
   await button("配置工作台");
-  await until(() => evaluate("document.querySelector('[aria-label=\"alpha → Claude Code\"]')"), "工作台加载");
+  await until(() => evaluate("!!document.querySelector('[aria-label=\"alpha → Claude Code\"]')"), "工作台加载");
   await evaluate("document.querySelector('[aria-label=\"alpha → Claude Code\"]').click()");
   await evaluate("[...document.querySelectorAll('.work-item')].find((b) => b.textContent.includes('beta')).click()");
   await evaluate("document.querySelector('[aria-label=\"beta → Codex CLI\"]').click()");
@@ -313,4 +314,11 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
   await button("全局设置");
   assert.equal(await evaluate("document.querySelector('[aria-label=\"备份目录\"]').value"), "C:/test/new-backups");
   await screenshot("global-settings");
+  await evaluate("window.manyClients = true");
+  await button("配置工作台");
+  await button("刷新");
+  await until(() => evaluate("document.querySelectorAll('.work-targets input').length === 14"), "14 个目标 Agent");
+  assert.equal(await evaluate("document.querySelector('.work-targets').scrollHeight > document.querySelector('.work-targets').clientHeight"), true);
+  assert.equal(await evaluate("document.querySelector('.bottombar').getBoundingClientRect().bottom <= innerHeight"), true, "完整目标列表不能挤出预览操作");
+  await screenshot("workbench-fourteen-agents");
 });

@@ -161,7 +161,7 @@ export default function App() {
       <div className="spacer" />{isMock && <span className="pill warn">演示数据 · 不写入磁盘</span>}<button className="btn" disabled={contextLocked || loading || !contextReady} onClick={() => { if (canLeave()) { setDirty(false); refresh(catalogPath, scope, projectRoot); } }}>刷新</button></div>
       {scope !== "user" && <div className="project-bar" aria-label="项目目录选择"><span className="label">项目目录</span><input aria-label="项目目录" className="input grow mono" value={projectInput} placeholder="选择或输入项目绝对目录" disabled={contextLocked} onChange={(e) => setProjectInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") changeProject(projectInput); }} />
         <button className="btn" disabled={contextLocked} onClick={chooseProject}>{choosing ? "处理中…" : "选择目录…"}</button><button className="btn" disabled={contextLocked || !projectInput.trim()} onClick={() => changeProject(projectInput)}>使用此目录</button>{project && projectInput !== project && <span className="pill warn">目录尚未应用</span>}</div>}
-      <div className={page === "matrix" ? "content fixed" : "content"}>
+      <div className={page === "matrix" ? "content fixed" : page === "workbench" ? "content workbench-page" : "content"}>
         {error && <Banner tone="danger"><div><b>需要处理</b><div className="mono">{error}</div></div></Banner>}
         {toast && <Banner tone="ok">{toast}</Banner>}
         {!contextReady && settingsValid && scope !== "user" && <Banner tone="warn">请先选择有效项目目录。项目配置不会使用软件的启动目录。</Banner>}
