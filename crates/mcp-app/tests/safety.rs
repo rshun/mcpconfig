@@ -4,8 +4,10 @@ use serde_json::{json, Value};
 use std::{collections::BTreeMap, fs, path::PathBuf};
 
 fn fixture() -> (PathBuf, App, PlanRequest) {
+    static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let serial = SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let dir = std::env::temp_dir().join(format!(
-        "mcphub-safety-{}-{}",
+        "mcphub-safety-{}-{}-{serial}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

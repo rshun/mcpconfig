@@ -18,7 +18,7 @@ async function until(read, description) {
 }
 
 // 使用 GitHub Ubuntu runner 自带 Chrome 和 CDP，无需额外浏览器测试依赖。
-test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 60000 }, async (t) => {
+test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 90000 }, async (t) => {
   const preview = spawn(process.execPath, [
     "node_modules/vite/bin/vite.js", "preview", "--host", "127.0.0.1", "--port", "4173", "--strictPort",
   ], { stdio: "ignore" });
@@ -30,12 +30,21 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
   const profile = await mkdtemp(join(tmpdir(), "mcphub-gui-test-"));
   const chrome = spawn(process.env.CHROME_PATH || "/usr/bin/google-chrome", [
     "--headless", "--no-sandbox", "--disable-dev-shm-usage", "--remote-debugging-pipe", `--user-data-dir=${profile}`,
-  ], { stdio: ["ignore", "ignore", "ignore", "pipe", "pipe"] });
+  ], { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] });
   t.after(() => chrome.kill());
   await once(chrome, "spawn");
   let sequence = 0;
   let buffer = "";
+  let diagnostics = "";
   const pending = new Map();
+  chrome.stderr.setEncoding("utf8");
+  chrome.stderr.on("data", (chunk) => { diagnostics = (diagnostics + chunk).slice(-3000); });
+  const failPending = (error) => {
+    for (const request of pending.values()) { clearTimeout(request.timer); request.reject(error); }
+    pending.clear();
+  };
+  chrome.once("exit", (code, signal) => failPending(new Error(`Chrome 已退出 (${code ?? signal})：${diagnostics}`)));
+  chrome.stdio[3].on("error", failPending);
   chrome.stdio[4].setEncoding("utf8");
   chrome.stdio[4].on("data", (chunk) => {
     buffer += chunk;
@@ -57,12 +66,14 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
       const id = ++sequence;
       const timer = setTimeout(() => {
         pending.delete(id);
-        reject(new Error(`CDP 超时：${method}`));
-      }, 10000);
+        reject(new Error(`CDP 超时：${method}；${diagnostics}`));
+      }, method === "Browser.getVersion" ? 30000 : 10000);
       pending.set(id, { resolve, reject, timer });
       chrome.stdio[3].write(JSON.stringify({ id, method, params, sessionId }) + "\0");
     });
   }
+  // 先等待浏览器启动就绪，冷启动使用独立时限，功能断言仍保持原有等待边界。
+  await send("Browser.getVersion");
   const { targetId } = await send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true });
   const evaluate = async (expression) => {

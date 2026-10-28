@@ -6,8 +6,10 @@ use serde_json::json;
 use std::{fs, path::Path};
 
 fn fixture() -> App {
+    static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let serial = SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let home = std::env::temp_dir().join(format!(
-        "mcphub-inspect-{}-{}",
+        "mcphub-inspect-{}-{}-{serial}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

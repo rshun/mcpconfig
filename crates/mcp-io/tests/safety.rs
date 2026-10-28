@@ -7,8 +7,10 @@ use mcp_io::{ApplyOptions, Engine, OutcomeStatus};
 use std::{fs, path::PathBuf, sync::Arc};
 
 fn fixture() -> (PathBuf, Engine) {
+    static SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let serial = SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let root = std::env::temp_dir().join(format!(
-        "mcphub-io-safety-{}-{}",
+        "mcphub-io-safety-{}-{}-{serial}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
