@@ -20,9 +20,11 @@ use time::UtcTime;
 
 #[derive(Debug, thiserror::Error)]
 pub enum IoError {
+    #[error("目标文件已变化，请重新预览：{0}")]
+    Conflict(String),
     #[error("IO 失败：{0}")]
     Io(String),
-    #[error("写入后校验失败，已回滚：{0}")]
+    #[error("写入后校验失败：{0}")]
     VerifyFailed(String),
     #[error("未找到备份：{0}")]
     BackupNotFound(String),
@@ -52,8 +54,12 @@ pub enum OutcomeStatus {
     Unchanged,
     /// 被阻止（作用域不支持 / 解析失败 / 含注释等）
     Blocked,
-    /// 写入失败并已回滚
+    /// 写入失败，原状态已经恢复
     Failed,
+    /// 写入失败且回滚失败，必须人工检查备份
+    RollbackFailed,
+    /// 文件已经写入，但审计日志失败
+    AuditFailed,
     /// 演练模式
     DryRun,
 }
@@ -65,6 +71,8 @@ impl OutcomeStatus {
             OutcomeStatus::Unchanged => "无变化",
             OutcomeStatus::Blocked => "已跳过",
             OutcomeStatus::Failed => "失败",
+            OutcomeStatus::RollbackFailed => "回滚失败",
+            OutcomeStatus::AuditFailed => "审计失败",
             OutcomeStatus::DryRun => "演练",
         }
     }
@@ -96,7 +104,14 @@ impl ApplyReceipt {
     pub fn failed(&self) -> usize {
         self.outcomes
             .iter()
-            .filter(|o| o.status == OutcomeStatus::Failed)
+            .filter(|o| {
+                matches!(
+                    o.status,
+                    OutcomeStatus::Failed
+                        | OutcomeStatus::RollbackFailed
+                        | OutcomeStatus::AuditFailed
+                )
+            })
             .count()
     }
     pub fn blocked(&self) -> usize {
@@ -185,6 +200,14 @@ impl Engine {
     pub fn apply(&self, plans: &[FilePlan], opts: &ApplyOptions) -> Result<ApplyReceipt> {
         let mut receipt = ApplyReceipt::default();
 
+        // 宿主必须先合并共享文件；拒绝绕过应用层传入的重复写入。
+        let mut paths = std::collections::BTreeSet::new();
+        for plan in plans.iter().filter(|p| p.has_write()) {
+            if !paths.insert(file_key(Path::new(&plan.path))?) {
+                return Err(io_err("同一文件包含多个写入计划，请先合并后再应用"));
+            }
+        }
+
         // 分类
         let mut writable: Vec<&FilePlan> = Vec::new();
         for p in plans {
@@ -223,48 +246,13 @@ impl Engine {
             return Ok(receipt);
         }
 
-        // 1) 先为所有待写文件建备份（写入前完成，失败可整体感知）
-        let now = UtcTime::now();
-        let backup_id = now.stamp();
-        let backup_dir = self.backups_dir().join(&backup_id);
-        fs::create_dir_all(&backup_dir).map_err(io_err)?;
-        restrict_permissions(&backup_dir, true)?;
-
-        let mut manifest = BackupManifest {
-            id: backup_id.clone(),
-            created_at: now.rfc3339(),
-            files: Vec::new(),
-        };
-
-        for (idx, p) in writable.iter().enumerate() {
-            let existed = Path::new(&p.path).exists();
-            let stored = format!(
-                "{:02}-{}{}",
-                idx,
-                sanitize(&p.client_id),
-                extension_of(&p.path)
-            );
-            if existed {
-                let src = Path::new(&p.path);
-                let dst = backup_dir.join(&stored);
-                fs::copy(src, &dst)
-                    .map_err(|e| io_err(format!("备份 {} 失败：{e}", src.display())))?;
-                restrict_permissions(&dst, false)?;
-            }
-            manifest.files.push(BackupFileEntry {
-                client_id: p.client_id.clone(),
-                scope: p.scope.as_str().to_string(),
-                path: p.path.clone(),
-                stored,
-                existed,
-            });
-        }
-
-        let manifest_path = backup_dir.join("manifest.json");
-        let manifest_json = serde_json::to_string_pretty(&manifest)
-            .map_err(|e| io_err(format!("备份清单序列化失败：{e}")))?;
-        fs::write(&manifest_path, manifest_json).map_err(io_err)?;
-        receipt.backup_id = Some(backup_id.clone());
+        // 1) 所有备份成功落盘后才开始写入。
+        let sources: Vec<_> = writable
+            .iter()
+            .map(|p| (p.client_id.as_str(), p.scope.as_str(), p.path.as_str()))
+            .collect();
+        let (manifest, backup_dir) = self.backup_files(&sources)?;
+        receipt.backup_id = Some(manifest.id.clone());
 
         // 2) 逐个写入 + 校验，失败立即回滚该文件
         for (idx, p) in writable.iter().enumerate() {
@@ -276,21 +264,20 @@ impl Engine {
                     status: OutcomeStatus::Written,
                     message: None,
                 }),
+                Err(IoError::Conflict(message)) => receipt.outcomes.push(FileOutcome {
+                    client_id: p.client_id.clone(),
+                    path: p.path.clone(),
+                    status: OutcomeStatus::Blocked,
+                    message: Some(format!("目标文件已变化，未写入，请重新预览：{message}")),
+                }),
                 Err(e) => {
-                    // 回滚该文件
-                    let path = Path::new(&p.path);
-                    if entry.existed {
-                        let src = backup_dir.join(&entry.stored);
-                        let _ = fs::copy(&src, path);
-                    } else {
-                        let _ = fs::remove_file(path);
-                    }
-                    receipt.outcomes.push(FileOutcome {
-                        client_id: p.client_id.clone(),
-                        path: p.path.clone(),
-                        status: OutcomeStatus::Failed,
-                        message: Some(format!("{e}")),
-                    });
+                    receipt.outcomes.push(self.failure_outcome(
+                        &p.client_id,
+                        &p.path,
+                        entry,
+                        &backup_dir,
+                        e,
+                    ));
                 }
             }
         }
@@ -301,8 +288,8 @@ impl Engine {
             receipt.outcomes.push(FileOutcome {
                 client_id: "-".into(),
                 path: self.audit_path().display().to_string(),
-                status: OutcomeStatus::Failed,
-                message: Some(format!("审计日志写入失败：{e}")),
+                status: OutcomeStatus::AuditFailed,
+                message: Some(format!("文件写入结果未回滚；审计日志写入失败：{e}")),
             });
         } else {
             receipt.audit_path = Some(self.audit_path());
@@ -313,14 +300,188 @@ impl Engine {
 
     fn write_and_verify(&self, plan: &FilePlan) -> Result<()> {
         let path = Path::new(&plan.path);
+        let current = self.read_text(path)?;
+        if current.as_deref()
+            != if plan.existed {
+                Some(plan.old_content.as_str())
+            } else {
+                None
+            }
+        {
+            return Err(IoError::Conflict(plan.path.clone()));
+        }
         atomic_write(path, &plan.new_content)?;
 
         // 写后校验：重新解析
         let written = fs::read_to_string(path).map_err(io_err)?;
         match ConfigDoc::parse(plan.format, &written) {
             Ok(_) => Ok(()),
-            Err(e) => Err(IoError::VerifyFailed(format!("{}：{e}", plan.path))),
+            Err(_) => Err(IoError::VerifyFailed(plan.path.clone())),
         }
+    }
+
+    fn backup_files(&self, sources: &[(&str, &str, &str)]) -> Result<(BackupManifest, PathBuf)> {
+        static SERIAL: AtomicU64 = AtomicU64::new(0);
+        fs::create_dir_all(self.backups_dir()).map_err(io_err)?;
+        restrict_permissions(&self.backups_dir(), true)?;
+        let (id, dir, created_at) = loop {
+            let time = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(io_err)?;
+            let now = UtcTime::from_unix(time.as_secs());
+            let serial = SERIAL.fetch_add(1, Ordering::Relaxed);
+            let id = format!(
+                "{}-{:09}-{}-{serial:016}",
+                now.stamp(),
+                time.subsec_nanos(),
+                std::process::id()
+            );
+            let dir = self.backups_dir().join(&id);
+            match fs::create_dir(&dir) {
+                Ok(()) => break (id, dir, now.rfc3339()),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(io_err(e)),
+            }
+        };
+        restrict_permissions(&dir, true)?;
+        let mut manifest = BackupManifest {
+            id,
+            created_at,
+            files: Vec::new(),
+        };
+        for (idx, &(client_id, scope, path)) in sources.iter().enumerate() {
+            let source = Path::new(path);
+            let existed = source.try_exists().map_err(io_err)?;
+            let stored = format!("{idx:02}-{}{}", sanitize(client_id), extension_of(path));
+            if existed {
+                let destination = dir.join(&stored);
+                let mut output = fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&destination)
+                    .map_err(io_err)?;
+                restrict_permissions(&destination, false)?;
+                let mut input = fs::File::open(source).map_err(io_err)?;
+                std::io::copy(&mut input, &mut output).map_err(io_err)?;
+                output.sync_all().map_err(io_err)?;
+            }
+            manifest.files.push(BackupFileEntry {
+                client_id: client_id.into(),
+                scope: scope.into(),
+                path: path.into(),
+                stored,
+                existed,
+            });
+        }
+        let manifest_path = dir.join("manifest.json");
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&manifest_path)
+            .map_err(io_err)?;
+        restrict_permissions(&manifest_path, false)?;
+        file.write_all(
+            serde_json::to_string_pretty(&manifest)
+                .map_err(io_err)?
+                .as_bytes(),
+        )
+        .map_err(io_err)?;
+        file.sync_all().map_err(io_err)?;
+        Ok((manifest, dir))
+    }
+
+    fn failure_outcome(
+        &self,
+        client_id: &str,
+        path: &str,
+        entry: &BackupFileEntry,
+        dir: &Path,
+        error: IoError,
+    ) -> FileOutcome {
+        let rollback = (|| -> Result<()> {
+            let target = Path::new(path);
+            if entry.existed {
+                let content = fs::read_to_string(dir.join(&entry.stored)).map_err(io_err)?;
+                atomic_write(target, &content)?;
+                if fs::read_to_string(target).map_err(io_err)? != content {
+                    return Err(io_err("回滚后的文件内容与备份不一致"));
+                }
+            } else {
+                match fs::remove_file(target) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(io_err(e)),
+                }
+            }
+            Ok(())
+        })();
+        let (status, message) = match rollback {
+            Ok(()) => (OutcomeStatus::Failed, format!("{error}；已恢复写入前状态")),
+            Err(rollback) => (
+                OutcomeStatus::RollbackFailed,
+                format!(
+                    "{error}；自动回滚失败：{rollback}。请保留并检查备份 {}",
+                    dir.display()
+                ),
+            ),
+        };
+        FileOutcome {
+            client_id: client_id.into(),
+            path: path.into(),
+            status,
+            message: Some(message),
+        }
+    }
+
+    /// 清单与 Agent 配置遵循同一备份、原子写入、验证和回滚规则。
+    pub fn save_catalog(&self, path: &Path, content: &str) -> Result<ApplyReceipt> {
+        mcp_core::catalog::load(content).map_err(|_| io_err("清单内容校验失败，未写入"))?;
+        let path = std::path::absolute(path).map_err(io_err)?;
+        let path_text = path.display().to_string();
+        let before = self.read_text(&path)?;
+        if before.as_deref() == Some(content) {
+            return Ok(ApplyReceipt::default());
+        }
+        let (manifest, dir) = self.backup_files(&[("catalog", "user", &path_text)])?;
+        // 备份期间有其他程序修改清单时中止，不能覆盖新内容。
+        if self.read_text(&path)? != before {
+            return Err(IoError::Conflict(path_text));
+        }
+        let write = (|| -> Result<()> {
+            atomic_write(&path, content)?;
+            let actual = self
+                .read_text(&path)?
+                .ok_or_else(|| io_err("保存后清单文件丢失"))?;
+            if actual != content || mcp_core::catalog::load(&actual).is_err() {
+                return Err(IoError::VerifyFailed("清单内容".into()));
+            }
+            Ok(())
+        })();
+        let outcome = match write {
+            Ok(()) => FileOutcome {
+                client_id: "catalog".into(),
+                path: path_text.clone(),
+                status: OutcomeStatus::Written,
+                message: None,
+            },
+            Err(error) => {
+                self.failure_outcome("catalog", &path_text, &manifest.files[0], &dir, error)
+            }
+        };
+        let mut receipt = ApplyReceipt {
+            backup_id: Some(manifest.id.clone()),
+            outcomes: vec![outcome],
+            ..Default::default()
+        };
+        if let Err(error) = self.append_audit(&manifest, &receipt) {
+            receipt.outcomes.push(FileOutcome {
+                client_id: "-".into(),
+                path: self.audit_path().display().to_string(),
+                status: OutcomeStatus::AuditFailed,
+                message: Some(format!("保存结果未回滚；审计写入失败：{error}")),
+            });
+        }
+        Ok(receipt)
     }
 
     fn append_audit(&self, manifest: &BackupManifest, receipt: &ApplyReceipt) -> Result<()> {
@@ -335,8 +496,12 @@ impl Engine {
         restrict_permissions(&self.audit_path(), false)?;
 
         let ts = UtcTime::now().rfc3339();
-        for (idx, o) in receipt.outcomes.iter().enumerate() {
-            let stored = manifest.files.get(idx).map(|f| f.stored.clone());
+        for o in &receipt.outcomes {
+            let stored = manifest
+                .files
+                .iter()
+                .find(|f| f.path == o.path && f.client_id == o.client_id)
+                .map(|f| f.stored.clone());
             let line = format!(
                 "{ts}\t{}\t{}\t{}\t{}\t{}\n",
                 status_tag(o.status),
@@ -432,12 +597,43 @@ impl Engine {
 
 // ---------------------------------------------------------------- 工具
 
+/// 现有文件按真实路径分组；尚未创建的文件解析最近存在的父目录。
+pub fn file_key(path: &Path) -> Result<String> {
+    let mut parent = std::path::absolute(path).map_err(io_err)?;
+    let mut suffix = Vec::new();
+    let mut canonical = loop {
+        match fs::canonicalize(&parent) {
+            Ok(path) => break path,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let name = parent
+                    .file_name()
+                    .ok_or_else(|| io_err("无法解析目标路径"))?
+                    .to_os_string();
+                suffix.push(name);
+                if !parent.pop() {
+                    return Err(io_err("无法解析目标父目录"));
+                }
+            }
+            Err(e) => return Err(io_err(e)),
+        }
+    };
+    for part in suffix.into_iter().rev() {
+        canonical.push(part);
+    }
+    let key = canonical.to_string_lossy().to_string();
+    #[cfg(windows)]
+    let key = key.to_lowercase();
+    Ok(key)
+}
+
 fn status_tag(s: OutcomeStatus) -> &'static str {
     match s {
         OutcomeStatus::Written => "write",
         OutcomeStatus::Unchanged => "skip",
         OutcomeStatus::Blocked => "block",
         OutcomeStatus::Failed => "fail",
+        OutcomeStatus::RollbackFailed => "rollback-failed",
+        OutcomeStatus::AuditFailed => "audit-failed",
         OutcomeStatus::DryRun => "dry",
     }
 }
@@ -469,6 +665,16 @@ fn extension_of(path: &str) -> &'static str {
 
 /// 原子写：临时文件 → fsync → rename。
 fn atomic_write(path: &Path, content: &str) -> Result<()> {
+    // 保留用户配置文件的符号链接，替换其实际指向的文件。
+    let actual = if fs::symlink_metadata(path)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        fs::canonicalize(path).map_err(io_err)?
+    } else {
+        path.to_path_buf()
+    };
+    let path = actual.as_path();
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
 
@@ -483,14 +689,19 @@ fn atomic_write(path: &Path, content: &str) -> Result<()> {
     let tmp = path.with_file_name(format!(".{file_name}.tmp-{}-{n}", std::process::id()));
 
     {
-        let mut f = fs::File::create(&tmp).map_err(io_err)?;
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+            .map_err(io_err)?;
+        restrict_permissions(&tmp, false)?;
         f.write_all(content.as_bytes()).map_err(io_err)?;
         f.sync_all().map_err(io_err)?;
     }
 
     // 保持原文件权限（若已存在）
     if let Ok(meta) = fs::metadata(path) {
-        let _ = fs::set_permissions(&tmp, meta.permissions());
+        fs::set_permissions(&tmp, meta.permissions()).map_err(io_err)?;
     }
 
     match fs::rename(&tmp, path) {
@@ -527,5 +738,50 @@ pub fn format_of(path: &str) -> Format {
         Format::Jsonc
     } else {
         Format::Json
+    }
+}
+
+#[cfg(test)]
+mod safety_tests {
+    use super::*;
+
+    #[test]
+    fn rollback_failure_is_reported_and_backup_is_preserved() {
+        let root = std::env::temp_dir().join(format!(
+            "mcphub-rollback-failure-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let engine = Engine::new(root.join("data"));
+        let target = root.join("target.json");
+        // 模拟写入失败后目标被目录占用，使新建文件的回滚也失败。
+        fs::create_dir_all(&target).unwrap();
+        let dir = root.join("backup");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("preserve.txt"), "backup must remain").unwrap();
+        let entry = BackupFileEntry {
+            client_id: "test".into(),
+            scope: "user".into(),
+            path: target.display().to_string(),
+            stored: "preserve.txt".into(),
+            existed: false,
+        };
+        let outcome = engine.failure_outcome(
+            "test",
+            &entry.path,
+            &entry,
+            &dir,
+            IoError::VerifyFailed("测试校验".into()),
+        );
+        assert_eq!(outcome.status, OutcomeStatus::RollbackFailed);
+        assert!(outcome.message.as_deref().unwrap().contains("自动回滚失败"));
+        assert!(!outcome.message.as_deref().unwrap().contains("已恢复"));
+        assert_eq!(
+            fs::read_to_string(dir.join("preserve.txt")).unwrap(),
+            "backup must remain"
+        );
     }
 }

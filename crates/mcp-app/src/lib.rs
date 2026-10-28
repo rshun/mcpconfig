@@ -8,6 +8,7 @@
 pub mod detect;
 pub mod env;
 pub mod inspect;
+mod planning;
 
 use mcp_core::adapters::{self, Adapter};
 use mcp_core::interpolate::VarCtx;
@@ -117,9 +118,8 @@ impl App {
                 }
             }
             // 先过滤再解析变量，避免未选中条目的变量告警进入本次计划。
-            cat.entries.retain(|entry| {
-                selection.values().any(|names| names.contains(&entry.name))
-            });
+            cat.entries
+                .retain(|entry| selection.values().any(|names| names.contains(&entry.name)));
         }
         let (entries, missing) = resolve::resolve_catalog(&cat, self.platform, &self.var_ctx());
 
@@ -175,7 +175,7 @@ impl App {
         Ok(PlanOutcome {
             catalog_issues: issues,
             missing_vars: missing.into_iter().map(|m| m.raw).collect(),
-            plans,
+            plans: planning::coalesce(plans)?,
             skipped,
             entry_count: entries.len(),
         })
@@ -199,6 +199,45 @@ impl App {
 
     pub fn backups(&self) -> Result<Vec<BackupManifest>, AppError> {
         Ok(self.engine.list_backups()?)
+    }
+
+    pub fn save_catalog(&self, path: &Path, cat: &Catalog) -> Result<Vec<String>, AppError> {
+        let issues = catalog::validate(cat);
+        if issues.iter().any(|issue| issue.is_error()) {
+            return Err(AppError::Other("清单校验失败，请检查条目字段".into()));
+        }
+        let content = if path
+            .extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| s.eq_ignore_ascii_case("json"))
+        {
+            serde_json::to_string_pretty(cat)
+                .map_err(|_| AppError::Other("清单序列化失败".into()))?
+        } else {
+            catalog::to_yaml(cat)?
+        };
+        let receipt = self.engine.save_catalog(path, &content)?;
+        if let Some(outcome) = receipt.outcomes.iter().find(|o| {
+            matches!(
+                o.status,
+                mcp_io::OutcomeStatus::Failed | mcp_io::OutcomeStatus::RollbackFailed
+            )
+        }) {
+            return Err(AppError::Other(format!(
+                "{}；备份 ID：{}",
+                outcome.message.as_deref().unwrap_or("清单保存失败"),
+                receipt.backup_id.as_deref().unwrap_or("无")
+            )));
+        }
+        let mut warnings: Vec<_> = issues.iter().map(ToString::to_string).collect();
+        warnings.extend(
+            receipt
+                .outcomes
+                .iter()
+                .filter(|o| o.status == mcp_io::OutcomeStatus::AuditFailed)
+                .filter_map(|o| o.message.clone()),
+        );
+        Ok(warnings)
     }
 
     pub fn restore(&self, backup_id: &str) -> Result<usize, AppError> {
@@ -271,7 +310,8 @@ impl App {
         let mut rows = Vec::with_capacity(entries.len());
 
         // 每个客户端的文档只解析一次
-        let mut docs: Vec<Option<mcp_core::document::ConfigDoc>> = Vec::with_capacity(clients.len());
+        let mut docs: Vec<Option<mcp_core::document::ConfigDoc>> =
+            Vec::with_capacity(clients.len());
         let mut roots: Vec<Option<Vec<String>>> = Vec::with_capacity(clients.len());
 
         for id in &clients {
@@ -291,9 +331,13 @@ impl App {
                 .read_text(&path)
                 .map_err(|e| AppError::Other(e.to_string()))?
                 .unwrap_or_default();
-            let doc = mcp_core::document::ConfigDoc::parse(adapter.spec().format, &text).ok();
+            let doc = mcp_core::document::ConfigDoc::parse(
+                adapter.format_for_path(&path),
+                text.trim_start_matches('\u{feff}'),
+            )
+            .ok();
             docs.push(doc);
-            roots.push(Some(adapter.root_key(scope)));
+            roots.push(Some(adapter.root_key_for_path(scope, &path)));
         }
 
         for entry in &entries {
@@ -328,7 +372,11 @@ impl App {
                         }
                     }
                 };
-                cells.push(MatrixCell { client_id: id.clone(), state, detail: None });
+                cells.push(MatrixCell {
+                    client_id: id.clone(),
+                    state,
+                    detail: None,
+                });
             }
             rows.push(MatrixRow {
                 name: entry.name.clone(),

@@ -116,6 +116,20 @@ pub trait Adapter: Send + Sync {
         self.spec().root_key.iter().map(|s| s.to_string()).collect()
     }
 
+    /// 多候选文件可能使用不同格式，不能仅由作用域决定。
+    fn root_key_for_path(&self, scope: Scope, _path: &std::path::Path) -> Vec<String> {
+        self.root_key(scope)
+    }
+
+    fn format_for_path(&self, path: &std::path::Path) -> Format {
+        match path.extension().and_then(|s| s.to_str()) {
+            Some("toml") => Format::Toml,
+            Some("jsonc") => Format::Jsonc,
+            Some("json") if self.spec().format == Format::Toml => Format::Json,
+            _ => self.spec().format,
+        }
+    }
+
     fn supports_scope(&self, scope: Scope) -> bool {
         self.spec().scopes.contains(&scope)
     }

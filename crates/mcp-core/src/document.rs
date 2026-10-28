@@ -58,8 +58,13 @@ impl ConfigDoc {
         match format {
             Format::Json | Format::Jsonc => {
                 let cleaned = strip_jsonc(trimmed);
-                let v: Value = serde_json::from_str(&cleaned)
-                    .map_err(|e| Error::Parse(format!("JSON 解析失败：{e}")))?;
+                let v: Value = serde_json::from_str(&cleaned).map_err(|e| {
+                    Error::Parse(format!(
+                        "JSON 解析失败（行 {}，列 {}）",
+                        e.line(),
+                        e.column()
+                    ))
+                })?;
                 if !v.is_object() {
                     return Err(Error::Parse("配置文件根节点不是对象".into()));
                 }
@@ -68,7 +73,7 @@ impl ConfigDoc {
             Format::Toml => trimmed
                 .parse::<DocumentMut>()
                 .map(ConfigDoc::Toml)
-                .map_err(|e| Error::Parse(format!("TOML 解析失败：{e}"))),
+                .map_err(|_| Error::Parse("TOML 解析失败，请检查语法".into())),
         }
     }
 

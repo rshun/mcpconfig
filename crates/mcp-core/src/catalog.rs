@@ -51,7 +51,13 @@ impl std::fmt::Display for Issue {
 
 /// 解析清单文本（YAML 或 JSON，YAML 是 JSON 超集）。
 pub fn parse(src: &str) -> Result<Catalog> {
-    serde_yaml::from_str::<Catalog>(src).map_err(|e| Error::Parse(format!("清单解析失败：{e}")))
+    serde_yaml::from_str::<Catalog>(src).map_err(|e| {
+        let location = e
+            .location()
+            .map(|l| format!("（行 {}，列 {}）", l.line(), l.column()))
+            .unwrap_or_default();
+        Error::Parse(format!("清单解析失败{location}，请检查语法和字段结构"))
+    })
 }
 
 /// 序列化为 YAML（供 GUI 保存）。

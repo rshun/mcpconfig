@@ -65,7 +65,33 @@ impl FilePlan {
 
     /// unified diff 文本（无改动时为空串）。
     pub fn diff_text(&self) -> String {
-        diff::unified(&self.old_content, &self.new_content, 3)
+        let (old, new) = self.display_texts();
+        diff::unified(&old, &new, 3)
+    }
+
+    /// 只展示本次目标条目，不带出源文件其他区域的凭据。
+    pub fn display_texts(&self) -> (String, String) {
+        let mut old = Vec::new();
+        let mut new = Vec::new();
+        for change in self
+            .changes
+            .iter()
+            .filter(|c| c.kind != ChangeKind::Unchanged)
+        {
+            let (before, after) = crate::redact::change(change.before.as_ref(), &change.after);
+            if let Some(before) = before {
+                old.push(serde_json::json!({ "name": change.name, "config": before }));
+            }
+            new.push(serde_json::json!({ "name": change.name, "config": after }));
+        }
+        let text = |entries: Vec<Value>| {
+            if entries.is_empty() {
+                String::new()
+            } else {
+                serde_json::to_string_pretty(&entries).unwrap_or_default()
+            }
+        };
+        (text(old), text(new))
     }
 }
 
@@ -80,8 +106,8 @@ pub fn plan_file(
     mode: MergeMode,
     allow_comment_strip: bool,
 ) -> Result<FilePlan> {
-    let spec = adapter.spec();
     let path = path.into();
+    let format = adapter.format_for_path(std::path::Path::new(&path));
     let existed = existing.is_some();
     let old_content = existing.unwrap_or("").to_string();
 
@@ -90,7 +116,7 @@ pub fn plan_file(
         client_name: adapter.display_name().to_string(),
         scope,
         path,
-        format: spec.format,
+        format,
         existed,
         blocked: None,
         changes: Vec::new(),
@@ -110,7 +136,7 @@ pub fn plan_file(
     }
 
     // JSONC 注释保护：一旦重写会丢注释，默认拒绝
-    if matches!(spec.format, Format::Jsonc)
+    if matches!(format, Format::Jsonc)
         && crate::document::has_jsonc_features(&old_content)
         && !allow_comment_strip
     {
@@ -120,7 +146,7 @@ pub fn plan_file(
         return Ok(plan);
     }
 
-    let mut doc = match ConfigDoc::parse(spec.format, &old_content) {
+    let mut doc = match ConfigDoc::parse(format, old_content.trim_start_matches('\u{feff}')) {
         Ok(d) => d,
         Err(e) => {
             plan.blocked = Some(format!("现有文件解析失败，已跳过（不会重建）：{e}"));
@@ -128,7 +154,7 @@ pub fn plan_file(
         }
     };
 
-    let root = adapter.root_key(scope);
+    let root = adapter.root_key_for_path(scope, std::path::Path::new(&plan.path));
     let mut inline_secrets = 0usize;
 
     for entry in entries {
@@ -154,7 +180,8 @@ pub fn plan_file(
     }
 
     plan.new_content = doc.render();
-    plan.line_diff = diff::line_diff(&plan.old_content, &plan.new_content);
+    let (old, new) = plan.display_texts();
+    plan.line_diff = diff::line_diff(&old, &new);
 
     if inline_secrets > 0 {
         plan.warnings.push(format!(

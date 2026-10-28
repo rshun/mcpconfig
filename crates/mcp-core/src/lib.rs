@@ -18,6 +18,7 @@ pub mod error;
 pub mod interpolate;
 pub mod model;
 pub mod plan;
+pub mod redact;
 pub mod resolve;
 
 pub use error::{Error, Result};

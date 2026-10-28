@@ -113,7 +113,13 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
             }));
             return { entryCount: 2, files, writable: files.length, issues: [], missingVars: [], skipped: [] };
           }
-          case "apply": return { written: 2, blocked: 0, failed: 0, backupId: null, outcomes: [] };
+          case "apply": return window.applyFailure ? {
+            written: 1, blocked: 0, failed: 2, backupId: "test-backup",
+            outcomes: [
+              { clientId: "claude-code", status: "rollbackFailed", message: "自动回滚失败，请检查备份" },
+              { clientId: "-", status: "auditFailed", message: "审计写入失败，文件未回滚" },
+            ],
+          } : { written: 2, blocked: 0, failed: 0, backupId: null, outcomes: [] };
           default: throw new Error(`未预期的 IPC：${command}`);
         }
       },
@@ -218,4 +224,16 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
   await readClient(1);
   await until(() => evaluate("document.querySelector('[aria-label=\"已有 MCP 配置\"]')?.textContent.includes('codex-已有服务')"), "没有清单仍能读取已有配置");
   assert.equal(await evaluate("window.testCalls.filter((c) => ['apply','save_catalog','restore'].includes(c.command)).length"), mutations);
+
+  await evaluate("window.failMatrix = false; window.applyFailure = true");
+  await button("刷新");
+  await button("客户端配置");
+  await until(() => evaluate("document.querySelectorAll('.cell-btn').length === 4"), "失败回执测试矩阵");
+  await cell("alpha → Claude Code");
+  await button("生成差异预览");
+  await waitDiff();
+  await button("确认写入");
+  await until(() => evaluate("document.body.textContent.includes('自动回滚失败，请检查备份')"), "回滚失败明确提示");
+  assert.equal(await evaluate("document.body.textContent.includes('审计写入失败，文件未回滚')"), true);
+  assert.equal(await evaluate("document.body.textContent.includes('已自动回滚')"), false);
 });

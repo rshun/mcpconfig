@@ -89,6 +89,8 @@ export function DiffPage({
         </button>
       </div>
 
+      <p className="muted">展示本次 MCP 条目的脱敏结构差异，参数、地址、环境变量值等已隐藏；文件格式仍按各 Agent 要求写入。</p>
+
       {writable.length === 0 && (
         <Banner tone="ok">
           所有目标内容均已一致，无需写入（幂等）。

@@ -8,9 +8,9 @@
 
 | 模块 | 状态 |
 |---|---|
-| `mcp-core`：IR、清单解析、插值、平台覆盖、14 个适配器 | ✅ 实现，67 项测试 |
-| `mcp-io`：备份 / 原子写 / 写后校验 / 回滚 / 审计 | ✅ 实现，13 项测试 |
-| `mcp-app` 应用服务层（检测 / 计划 / 应用 / 备份） | ✅ 实现，16 项测试 |
+| `mcp-core`：IR、清单解析、插值、平台覆盖、14 个适配器 | ✅ 实现，69 项测试 |
+| `mcp-io`：备份 / 原子写 / 写后校验 / 回滚 / 审计 | ✅ 实现，20 项测试 |
+| `mcp-app` 应用服务层（检测 / 计划 / 应用 / 备份） | ✅ 实现，37 项测试 |
 | `mcp-hub` CLI（doctor / diff / apply / backups / restore） | ✅ 实现，可执行 |
 | GUI 前端（React + TS，5 屏） | ✅ 实现，可在浏览器评审（mock 数据） |
 | GUI 桌面壳（Tauri v2 薄适配） | ✅ 代码完成；编译需 rustc ≥ 1.90，交给 CI 验证 |
@@ -19,6 +19,10 @@
 可交互原型见 [`docs/prototype/index.html`](docs/prototype/index.html)。
 
 ## 支持的客户端（14）
+
+dev 分支的写入安全修复及其边界见 [安全修复说明](docs/SAFETY.md)。
+下一版界面方向见 [设计说明](docs/UI-DIRECTION.md)，可离线打开 [交互原型](docs/ui-workbench.html)；
+原型只演示操作，不读取或修改本机配置，正式 GUI 本轮不重做布局。
 
 Claude Code · Codex CLI · WorkBuddy · Kimi Code · OpenCode(v2) · VS Code · Antigravity · Grok ·
 Cursor · Cline · Gemini CLI · Claude Desktop · Windsurf · Trae
@@ -162,7 +166,7 @@ GitHub Actions 会产出：
 确认文件集合、大小及可用的服务端摘要匹配后才正式发布。缺少匹配预构建或制品已过期时会停止发布。
 版本说明与已知限制见 [`docs/releases/v0.1.1.md`](docs/releases/v0.1.1.md)。
 
-CI 在 `dev` 推送、提交到 `master` 的 PR 及发布预构建时运行：Windows/Linux 各 111 项 Rust 测试、
+CI 在 `dev` 推送、提交到 `master` 的 PR 及发布预构建时运行：Windows/Linux 各 126 项 Rust 测试、
 7 项前端测试、1 项真实浏览器回归测试、前端构建和 Windows 桌面编译检查。
 
 ## 构建前置条件

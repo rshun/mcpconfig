@@ -160,7 +160,7 @@ export function BackupsPage({
               <span className="mono"> · 备份 {receipt.backupId}</span>
             )}
             {receipt.outcomes
-              .filter((o) => o.status === "failed")
+              .filter((o) => ["failed", "rollbackFailed", "auditFailed"].includes(o.status))
               .map((o) => (
                 <div key={o.clientId} className="mono">
                   · {o.clientId}：{o.message}

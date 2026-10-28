@@ -48,7 +48,7 @@ export function CatalogPage({
 }: {
   entries: Entry[] | null;
   issues: string[];
-  onSave: (entries: Entry[]) => Promise<void>;
+  onSave: (entries: Entry[]) => Promise<string[]>;
   onDirty: (dirty: boolean) => void;
 }) {
   const [list, setList] = useState<Entry[]>(entries ?? []);
@@ -89,9 +89,9 @@ export function CatalogPage({
     setSaving(true);
     setMsg(null);
     try {
-      await onSave(list);
-      setMsg("已保存到清单文件");
-      setTimeout(() => setMsg(null), 2500);
+      const warnings = await onSave(list);
+      setMsg(["已保存到清单文件", ...warnings].join("；"));
+      if (warnings.length === 0) setTimeout(() => setMsg(null), 2500);
     } catch (e) {
       setMsg(`保存失败：${String(e)}`);
     } finally {

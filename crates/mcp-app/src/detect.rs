@@ -122,8 +122,11 @@ pub fn detect_client(
     if let Some(path) = &chosen_path {
         if path.is_file() {
             if let Ok(text) = std::fs::read_to_string(path) {
-                if let Ok(doc) = ConfigDoc::parse(adapter.spec().format, &text) {
-                    configured_entries = doc.names(&adapter.root_key(scope));
+                if let Ok(doc) = ConfigDoc::parse(
+                    adapter.format_for_path(path),
+                    text.trim_start_matches('\u{feff}'),
+                ) {
+                    configured_entries = doc.names(&adapter.root_key_for_path(scope, path));
                 }
             }
         }
@@ -133,7 +136,10 @@ pub fn detect_client(
         id: adapter.id().to_string(),
         name: adapter.display_name().to_string(),
         kind: adapter.kind(),
-        format: adapter.spec().format,
+        format: chosen_path
+            .as_ref()
+            .map(|p| adapter.format_for_path(p))
+            .unwrap_or(adapter.spec().format),
         scopes: adapter.spec().scopes.to_vec(),
         binary,
         chosen_path,

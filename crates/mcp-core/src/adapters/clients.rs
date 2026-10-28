@@ -188,6 +188,29 @@ impl Adapter for VsCode {
             _ => vec!["mcpServers".to_string()],
         }
     }
+
+    fn root_key_for_path(&self, _scope: Scope, path: &std::path::Path) -> Vec<String> {
+        let portable = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .is_some_and(|name| {
+                name.eq_ignore_ascii_case(".mcp.json")
+                    || name.eq_ignore_ascii_case("mcp-config.json")
+            });
+        vec![if portable { "mcpServers" } else { "servers" }.to_string()]
+    }
+
+    fn format_for_path(&self, path: &std::path::Path) -> Format {
+        if path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| s.eq_ignore_ascii_case("mcp.json"))
+        {
+            Format::Jsonc
+        } else {
+            Format::Json
+        }
+    }
 }
 
 // ---------------------------------------------------------------- 7. Antigravity

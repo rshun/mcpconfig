@@ -218,7 +218,7 @@ export default function App() {
       setReceipt(r);
       setToast(
         r.failed > 0
-          ? `写入完成但有 ${r.failed} 个失败，已自动回滚`
+          ? `已写入 ${r.written} 个文件，${r.failed} 项失败，请查看逐项结果和备份`
           : `已写入 ${r.written} 个文件`
       );
       await refresh(catalogPath, scope);
@@ -377,9 +377,10 @@ export default function App() {
               entries={entries}
               issues={catalog?.issues ?? []}
               onSave={async (list) => {
-                await api.saveCatalog(catalogPath, { version: 1, entries: list });
+                const warnings = await api.saveCatalog(catalogPath, { version: 1, entries: list });
                 await loadCatalog(catalogPath);
                 await refresh(catalogPath, scope);
+                return warnings;
               }}
               onDirty={() => {}}
             />

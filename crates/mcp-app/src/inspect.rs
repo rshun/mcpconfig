@@ -37,12 +37,7 @@ impl App {
             .target_path(adapter, scope)
             .ok_or_else(|| AppError::Other("缺少配置目录，无法定位当前作用域的配置".into()))?;
         // Grok 等客户端有 TOML / JSON 候选，必须按实际命中的文件解析。
-        let format = match path.extension().and_then(|ext| ext.to_str()) {
-            Some("toml") => Format::Toml,
-            Some("json") => Format::Json,
-            Some("jsonc") => Format::Jsonc,
-            _ => adapter.spec().format,
-        };
+        let format = adapter.format_for_path(&path);
         let mut result = ExistingConfig {
             client_id: client_id.to_string(),
             client_name: adapter.display_name().to_string(),
@@ -72,7 +67,7 @@ impl App {
                 ))
             })?;
         let entries = doc
-            .entries(&adapter.root_key(scope))
+            .entries(&adapter.root_key_for_path(scope, &path))
             .map_err(|_| AppError::Other("MCP 配置容器结构无效，应为对象或表".into()))?;
         for (name, entry) in entries {
             if !entry.is_object() {
@@ -88,66 +83,6 @@ impl App {
     }
 }
 
-const HIDDEN: &str = "[已隐藏]";
-
-// 采用白名单展示：未知字符串也隐藏，避免凭据通过自定义字段、参数或 URL 泄露。
 fn redact(value: &Value) -> Value {
-    match value {
-        Value::Object(object) => Value::Object(
-            object
-                .iter()
-                .map(|(key, value)| {
-                    let safe = match (key.as_str(), value) {
-                        ("command", Value::String(command)) if safe_command(command) => {
-                            value.clone()
-                        }
-                        ("command", Value::Array(parts)) => Value::Array(
-                            parts
-                                .iter()
-                                .enumerate()
-                                .map(|(i, part)| {
-                                    if i == 0 && part.as_str().is_some_and(safe_command) {
-                                        part.clone()
-                                    } else {
-                                        hide_values(part)
-                                    }
-                                })
-                                .collect(),
-                        ),
-                        ("type" | "transport", Value::String(kind))
-                            if ["stdio", "http", "sse", "local", "remote"]
-                                .contains(&kind.as_str()) =>
-                        {
-                            value.clone()
-                        }
-                        ("enabled" | "disabled", Value::Bool(_)) => value.clone(),
-                        _ => hide_values(value),
-                    };
-                    (key.clone(), safe)
-                })
-                .collect(),
-        ),
-        _ => hide_values(value),
-    }
-}
-
-fn safe_command(command: &str) -> bool {
-    !command.is_empty()
-        && command
-            .chars()
-            .all(|c| c.is_alphanumeric() || "_./\\:-".contains(c))
-}
-
-fn hide_values(value: &Value) -> Value {
-    match value {
-        Value::Object(object) => Value::Object(
-            object
-                .iter()
-                .map(|(k, v)| (k.clone(), hide_values(v)))
-                .collect(),
-        ),
-        Value::Array(array) => Value::Array(array.iter().map(hide_values).collect()),
-        // 环境变量的数值、bool 也可能是密码，统一隐藏，保留字段和数组结构。
-        _ => Value::String(HIDDEN.into()),
-    }
+    mcp_core::redact::config_entry(value)
 }

@@ -100,27 +100,11 @@ pub fn load_catalog(path: String) -> Result<CatalogDto, String> {
 /// 保存清单（写回 YAML）。
 #[tauri::command]
 pub fn save_catalog(path: String, catalog: serde_json::Value) -> Result<Vec<String>, String> {
-    let cat: mcp_core::Catalog = serde_json::from_value(catalog).map_err(err)?;
-
-    let issues = mcp_core::catalog::validate(&cat);
-    if let Some(first) = issues.iter().find(|i| i.is_error()) {
-        return Err(format!("清单校验失败：{first}"));
-    }
-
-    let yaml = mcp_core::catalog::to_yaml(&cat).map_err(err)?;
-
-    // 写前备份现有清单（复用引擎的备份目录约定）
-    let target = std::path::Path::new(&path);
-    if target.exists() {
-        let a = app();
-        let backup_dir = a.engine.backups_dir().join("catalog");
-        let _ = std::fs::create_dir_all(&backup_dir);
-        let stamp = mcp_io::time::UtcTime::now().stamp();
-        let _ = std::fs::copy(target, backup_dir.join(format!("{stamp}.yaml")));
-    }
-
-    std::fs::write(target, yaml).map_err(err)?;
-    Ok(issues.iter().map(|i| i.to_string()).collect())
+    let cat: mcp_core::Catalog =
+        serde_json::from_value(catalog).map_err(|_| "清单字段结构无效，请检查输入".to_string())?;
+    app()
+        .save_catalog(std::path::Path::new(&path), &cat)
+        .map_err(err)
 }
 
 /// 预演：计算逐文件变化（不写盘）。

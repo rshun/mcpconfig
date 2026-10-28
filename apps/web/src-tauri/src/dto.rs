@@ -292,6 +292,8 @@ fn outcome_key(s: OutcomeStatus) -> &'static str {
         OutcomeStatus::Unchanged => "unchanged",
         OutcomeStatus::Blocked => "blocked",
         OutcomeStatus::Failed => "failed",
+        OutcomeStatus::RollbackFailed => "rollbackFailed",
+        OutcomeStatus::AuditFailed => "auditFailed",
         OutcomeStatus::DryRun => "dryRun",
     }
 }
