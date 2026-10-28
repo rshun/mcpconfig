@@ -10,7 +10,7 @@ const STATE_TONE: Record<string, "ok" | "warn" | "info" | "danger" | "plain"> = 
   missing: "plain",
 };
 
-export function DetectPage({ clients, scope }: { clients: ClientDto[] | null; scope: Scope }) {
+export function DetectPage({ clients, scope, projectRoot = null }: { clients: ClientDto[] | null; scope: Scope; projectRoot?: string | null }) {
   const [config, setConfig] = useState<ExistingConfigDto | null>(null);
   const [reading, setReading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +21,7 @@ export function DetectPage({ clients, scope }: { clients: ClientDto[] | null; sc
     setReading(null);
     setError(null);
     return () => { revision.current += 1; };
-  }, [clients]);
+  }, [clients, scope, projectRoot]);
 
   async function readConfig(clientId: string) {
     const request = ++revision.current;
@@ -29,7 +29,7 @@ export function DetectPage({ clients, scope }: { clients: ClientDto[] | null; sc
     setConfig(null);
     setError(null);
     try {
-      const result = await api.readClientConfig(clientId, scope);
+      const result = await api.readClientConfig(clientId, scope, projectRoot);
       if (request === revision.current) setConfig(result);
     } catch (e) {
       if (request === revision.current) setError(String(e));
@@ -44,7 +44,7 @@ export function DetectPage({ clients, scope }: { clients: ClientDto[] | null; sc
 
   return (
     <>
-      <h1>环境检测</h1>
+      <h1>Agent</h1>
       <p className="sub">
         三通道探测：配置路径（最权威）→ CLI 可执行文件 → 应用安装目录。共 {clients.length} 个客户端，
         {ready} 个已就绪。
@@ -147,7 +147,7 @@ export function BackupsPage({
     <>
       <h1>备份与回滚</h1>
       <p className="sub">
-        每次写入前都会完整备份原文，可回滚到任意时间点。备份目录权限仅当前用户可读。
+        每次写入前备份原文。回滚会覆盖涉及文件的当前内容，请先核对路径；备份可能包含密钥，请妥善保管目录。
       </p>
 
       {receipt && (

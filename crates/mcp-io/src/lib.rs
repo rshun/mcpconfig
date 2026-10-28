@@ -160,11 +160,15 @@ impl BackupManifest {
 
 pub struct Engine {
     home: PathBuf,
+    backup_root: Option<PathBuf>,
 }
 
 impl Engine {
     pub fn new(home: impl Into<PathBuf>) -> Self {
-        Self { home: home.into() }
+        Self {
+            home: home.into(),
+            backup_root: None,
+        }
     }
 
     /// 默认位置：`~/.mcp-hub`。
@@ -180,7 +184,14 @@ impl Engine {
     }
 
     pub fn backups_dir(&self) -> PathBuf {
-        self.home.join("backups")
+        self.backup_root
+            .clone()
+            .unwrap_or_else(|| self.home.join("backups"))
+    }
+
+    pub fn with_backups_dir(mut self, path: PathBuf) -> Self {
+        self.backup_root = Some(path);
+        self
     }
 
     pub fn audit_path(&self) -> PathBuf {
@@ -435,14 +446,34 @@ impl Engine {
 
     /// 清单与 Agent 配置遵循同一备份、原子写入、验证和回滚规则。
     pub fn save_catalog(&self, path: &Path, content: &str) -> Result<ApplyReceipt> {
-        mcp_core::catalog::load(content).map_err(|_| io_err("清单内容校验失败，未写入"))?;
+        self.save_checked(path, content, "catalog", |text| {
+            mcp_core::catalog::load(text).is_ok()
+        })
+    }
+
+    pub fn save_settings(&self, path: &Path, content: &str) -> Result<ApplyReceipt> {
+        self.save_checked(path, content, "settings", |text| {
+            serde_json::from_str::<serde_json::Value>(text).is_ok_and(|value| value.is_object())
+        })
+    }
+
+    fn save_checked(
+        &self,
+        path: &Path,
+        content: &str,
+        kind: &str,
+        valid: fn(&str) -> bool,
+    ) -> Result<ApplyReceipt> {
+        if !valid(content) {
+            return Err(io_err("内容校验失败，未写入"));
+        }
         let path = std::path::absolute(path).map_err(io_err)?;
         let path_text = path.display().to_string();
         let before = self.read_text(&path)?;
         if before.as_deref() == Some(content) {
             return Ok(ApplyReceipt::default());
         }
-        let (manifest, dir) = self.backup_files(&[("catalog", "user", &path_text)])?;
+        let (manifest, dir) = self.backup_files(&[(kind, "user", &path_text)])?;
         // 备份期间有其他程序修改清单时中止，不能覆盖新内容。
         if self.read_text(&path)? != before {
             return Err(IoError::Conflict(path_text));
@@ -451,22 +482,20 @@ impl Engine {
             atomic_write(&path, content)?;
             let actual = self
                 .read_text(&path)?
-                .ok_or_else(|| io_err("保存后清单文件丢失"))?;
-            if actual != content || mcp_core::catalog::load(&actual).is_err() {
-                return Err(IoError::VerifyFailed("清单内容".into()));
+                .ok_or_else(|| io_err("保存后文件丢失"))?;
+            if actual != content || !valid(&actual) {
+                return Err(IoError::VerifyFailed("保存内容".into()));
             }
             Ok(())
         })();
         let outcome = match write {
             Ok(()) => FileOutcome {
-                client_id: "catalog".into(),
+                client_id: kind.into(),
                 path: path_text.clone(),
                 status: OutcomeStatus::Written,
                 message: None,
             },
-            Err(error) => {
-                self.failure_outcome("catalog", &path_text, &manifest.files[0], &dir, error)
-            }
+            Err(error) => self.failure_outcome(kind, &path_text, &manifest.files[0], &dir, error),
         };
         let mut receipt = ApplyReceipt {
             backup_id: Some(manifest.id.clone()),

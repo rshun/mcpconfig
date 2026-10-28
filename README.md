@@ -10,19 +10,19 @@
 |---|---|
 | `mcp-core`：IR、清单解析、插值、平台覆盖、14 个适配器 | ✅ 实现，69 项测试 |
 | `mcp-io`：备份 / 原子写 / 写后校验 / 回滚 / 审计 | ✅ 实现，20 项测试 |
-| `mcp-app` 应用服务层（检测 / 计划 / 应用 / 备份） | ✅ 实现，37 项测试 |
+| `mcp-app` 应用服务层（检测 / 计划 / 应用 / 备份 / 软件设置） | ✅ 实现，44 项测试 |
 | `mcp-hub` CLI（doctor / diff / apply / backups / restore） | ✅ 实现，可执行 |
-| GUI 前端（React + TS，5 屏） | ✅ 实现，可在浏览器评审（mock 数据） |
-| GUI 桌面壳（Tauri v2 薄适配） | ✅ 代码完成；编译需 rustc ≥ 1.90，交给 CI 验证 |
+| GUI 前端（React + TS，配置工作台） | ✅ MCP / Agent 两种视角，独立全局与项目范围，持久化软件设置 |
+| GUI 桌面壳（Tauri v2 薄适配） | ✅ Windows / macOS 安装包，由 GitHub Actions 验证与构建 |
 
 设计文档见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)，客户端方言细则见 [`docs/adapters.md`](docs/adapters.md)，
 可交互原型见 [`docs/prototype/index.html`](docs/prototype/index.html)。
 
 ## 支持的客户端（14）
 
-dev 分支的写入安全修复及其边界见 [安全修复说明](docs/SAFETY.md)。
-下一版界面方向见 [设计说明](docs/UI-DIRECTION.md)，可离线打开 [交互原型](docs/ui-workbench.html)；
-原型只演示操作，不读取或修改本机配置，正式 GUI 本轮不重做布局。
+写入安全修复及其边界见 [安全修复说明](docs/SAFETY.md)。
+界面设计和后续方向见 [设计说明](docs/UI-DIRECTION.md)，可离线打开 [交互原型](docs/ui-workbench.html)。
+正式 GUI 已采用配置工作台布局；原型仍只演示操作，不读取或修改本机配置。
 
 Claude Code · Codex CLI · WorkBuddy · Kimi Code · OpenCode(v2) · VS Code · Antigravity · Grok ·
 Cursor · Cline · Gemini CLI · Claude Desktop · Windsurf · Trae
@@ -65,8 +65,26 @@ npm run dev        # 打开 http://localhost:5173/?mock=1
 npm --prefix apps/web run tauri dev     # 需 rustc >= 1.90
 ```
 
-界面包含 5 屏：客户端配置（矩阵）· MCP配置（编辑）· 差异预览 · 环境检测 · 备份回滚。
-支持深链：`?page=matrix|catalog|diff|detect|backups`。
+默认进入「配置工作台」，支持按 MCP 配置和按 Agent 查看本次分发选择。侧栏提供 Agent、变更记录、全局设置，
+保留 MCP配置编辑器、客户端配置矩阵和差异预览作为工具入口。
+支持深链：`?page=workbench|matrix|catalog|diff|detect|backups|settings`。
+
+### 首次使用、项目目录和软件设置
+
+1. 顶部「配置库」输入现有 YAML 的绝对路径并加载，或点击「新建空配置库」，再到「MCP配置」添加条目。
+2. 「全局配置」指当前用户跨项目的 Agent 配置，只应用到勾选的 Agent；此时隐藏项目目录。
+3. 选择「项目配置」，点击「选择目录…」打开系统目录对话框，或手动填写绝对目录并点击「使用此目录」。
+   项目必须已经存在；取消选择不改变当前目录。目录选择失败时可手动输入。不会沿用程序启动目录。
+4. 在工作台选择一个 MCP，在右侧勾选目标 Agent；也可切换到按 Agent 查看，为当前 Agent 勾选 MCP。
+   两种视角共用逐对勾选。点击「预览变更」，核对实际文件路径和共享文件提示，再确认写入。
+5. 「全局设置」保存默认配置库文件、备份目录、启动默认范围和写入策略。设置在 `~/.mcp-hub/settings.json`，
+   上次选择的项目目录也会保留，重启可恢复。默认库、范围、策略在下次启动使用，不自动切换当前任务。
+   新备份目录保存后生效；不会迁移历史备份，切回旧路径即可查看原记录。设置自身的备份始终在 `~/.mcp-hub/backups`。
+
+首次启动不会自动写入 Agent。默认配置库不存在时可创建空库，也可直接进入 Agent 只读查看。
+设置保存先备份原文，再原子写入并校验；损坏或不支持的设置会阻止操作，需在全局设置中核对并明确保存。
+备份可能含有凭据，Windows 使用用户目录继承的权限，请妥善保管；不宣称自动加固 Windows ACL。
+软件未自动导入已有 Agent 的原始密钥或配置，读取入口仍是只读。未保存编辑切页会提示。
 
 矩阵按单元格选择：例如只勾选「filesystem → Claude Code」和「github → Codex」，
 预览与写入只处理这两个配对，不会向两个客户端同时分发两条配置。
@@ -75,13 +93,13 @@ npm --prefix apps/web run tauri dev     # 需 rustc >= 1.90
 
 GUI 选择回归由 GitHub Actions 的 `CI` 工作流验证：推送 `dev`、提交到 `master` 的 PR，
 或手动运行均可触发。包含 Windows/Linux Rust 测试、前端选择与 IPC 测试、前端构建，
-以及 Windows Tauri 编译检查。真实浏览器测试会点击矩阵、改变选择和覆盖模式，
-检查过期预览失效及确认写入的选择快照。前端测试使用 Node 24 和 runner 自带 Chrome，无新增测试依赖。
+以及 Windows Tauri 编译与目录选择命令构造检查。真实浏览器测试会点击矩阵和工作台、改变选择和覆盖模式，
+检查过期预览失效、确认写入的选择快照、目录参数传递、取消选择、保存失败和重启恢复。前端测试使用 Node 24 和 runner 自带 Chrome，无新增测试依赖。
 回归测试使用临时配置目录，不读取或改写用户真实 MCP 配置。
 
 ### 查看 Agent 已有的 MCP
 
-进入「环境检测」，在目标 Agent 一行点击「查看 MCP」，展开条目即可查看已有配置的字段结构。
+进入「Agent」，在目标 Agent 一行点击「查看 MCP」，展开条目即可查看已有配置的字段结构。
 页面显示实际读取的配置路径、格式和 MCP 名称；未创建清单文件也能使用此功能。
 配置文件不存在、存在但未配置 MCP、配置损坏会分别提示。读取沿用各客户端的有序候选路径，
 多个候选存在时读取第一个；优先文件损坏时报告错误，不会自动换读其他文件。
@@ -89,7 +107,7 @@ GUI 选择回归由 GitHub Actions 的 `CI` 工作流验证：推送 `dev`、提
 此入口只读，不会导入清单、修改 Agent 配置、产生备份或启动 MCP 服务。
 敏感值在后端隐藏：环境变量、headers、参数、URL 和自定义字段的值不返回前端，
 仅保留字段结构、普通可执行文件路径、已知传输类型及启用开关。隐藏后的详情不用于直接复制配置。
-项目级路径使用应用启动时的工作目录，请核对展示的路径；不支持的作用域不可读取。
+项目级路径使用顶部明确选定的项目目录；未选择有效目录时阻止读取和写入，不支持的作用域不可读取。
 切换 Agent、刷新或切换作用域后，旧请求不会覆盖当前查看结果。
 
 相关回归由 GitHub CI 执行：后端在临时目录覆盖三平台的 14 个适配器、JSON/JSONC/TOML、

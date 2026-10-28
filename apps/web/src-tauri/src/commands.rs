@@ -6,6 +6,7 @@ use crate::dto::{
     AppInfoDto, BackupDto, CatalogDto, ClientDto, ExistingConfigDto, FileDto, MatrixDto, PlanDto,
     ReceiptDto, SkippedDto,
 };
+use mcp_app::settings::GuiSettings;
 use mcp_app::{App, PlanRequest};
 use mcp_core::model::Scope;
 use mcp_core::plan::MergeMode;
@@ -13,6 +14,41 @@ use std::collections::BTreeMap;
 
 fn app() -> App {
     App::from_process(None)
+}
+
+fn context(scope: Scope, project_root: Option<String>) -> Result<App, String> {
+    app()
+        .gui_context(scope, project_root.map(std::path::PathBuf::from))
+        .map_err(err)
+}
+
+#[tauri::command]
+pub fn load_settings() -> Result<GuiSettings, String> {
+    app().load_settings().map_err(err)
+}
+
+#[tauri::command]
+pub fn default_settings() -> GuiSettings {
+    app().default_settings()
+}
+
+#[tauri::command]
+pub fn save_settings(settings: GuiSettings) -> Result<Vec<String>, String> {
+    app().save_settings(&settings).map_err(err)
+}
+
+#[tauri::command]
+pub async fn choose_directory(initial: Option<String>) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::directory::choose(initial))
+        .await
+        .map_err(|_| "目录选择任务失败，请手动输入目录".to_string())?
+}
+
+#[tauri::command]
+pub fn create_catalog(path: String) -> Result<Vec<String>, String> {
+    context(Scope::User, None)?
+        .create_catalog(std::path::Path::new(&path))
+        .map_err(err)
 }
 
 fn parse_scope(s: &str) -> Result<Scope, String> {
@@ -56,9 +92,9 @@ pub fn app_info() -> AppInfoDto {
 
 /// 检测本机客户端（只读）。
 #[tauri::command]
-pub fn detect(scope: String) -> Result<Vec<ClientDto>, String> {
+pub fn detect(scope: String, project_root: Option<String>) -> Result<Vec<ClientDto>, String> {
     let scope = parse_scope(&scope)?;
-    let a = app();
+    let a = context(scope, project_root)?;
     Ok(mcp_app::detect_all(&a.env, a.platform, scope)
         .into_iter()
         .map(ClientDto::from)
@@ -67,18 +103,27 @@ pub fn detect(scope: String) -> Result<Vec<ClientDto>, String> {
 
 /// 按预定义路径只读查看已有 MCP；敏感值已经在应用层隐藏。
 #[tauri::command]
-pub fn read_client_config(client_id: String, scope: String) -> Result<ExistingConfigDto, String> {
-    app()
-        .read_client_config(&client_id, parse_scope(&scope)?)
+pub fn read_client_config(
+    client_id: String,
+    scope: String,
+    project_root: Option<String>,
+) -> Result<ExistingConfigDto, String> {
+    let scope = parse_scope(&scope)?;
+    context(scope, project_root)?
+        .read_client_config(&client_id, scope)
         .map(ExistingConfigDto::from)
         .map_err(err)
 }
 
 /// 矩阵视图（只读）。
 #[tauri::command]
-pub fn matrix(catalog_path: String, scope: String) -> Result<MatrixDto, String> {
+pub fn matrix(
+    catalog_path: String,
+    scope: String,
+    project_root: Option<String>,
+) -> Result<MatrixDto, String> {
     let scope = parse_scope(&scope)?;
-    let a = app();
+    let a = context(scope, project_root)?;
     a.matrix(std::path::Path::new(&catalog_path), scope)
         .map(MatrixDto::from)
         .map_err(err)
@@ -102,7 +147,7 @@ pub fn load_catalog(path: String) -> Result<CatalogDto, String> {
 pub fn save_catalog(path: String, catalog: serde_json::Value) -> Result<Vec<String>, String> {
     let cat: mcp_core::Catalog =
         serde_json::from_value(catalog).map_err(|_| "清单字段结构无效，请检查输入".to_string())?;
-    app()
+    context(Scope::User, None)?
         .save_catalog(std::path::Path::new(&path), &cat)
         .map_err(err)
 }
@@ -115,8 +160,9 @@ pub fn plan(
     scope: String,
     mode: String,
     allow_comment_strip: bool,
+    project_root: Option<String>,
 ) -> Result<PlanDto, String> {
-    let a = app();
+    let a = context(parse_scope(&scope)?, project_root)?;
     let mut req = PlanRequest::new(catalog_path);
     req.scope = parse_scope(&scope)?;
     req.mode = parse_mode(&mode)?;
@@ -148,8 +194,9 @@ pub fn apply(
     mode: String,
     allow_comment_strip: bool,
     dry_run: bool,
+    project_root: Option<String>,
 ) -> Result<ReceiptDto, String> {
-    let a = app();
+    let a = context(parse_scope(&scope)?, project_root)?;
     let mut req = PlanRequest::new(catalog_path);
     req.scope = parse_scope(&scope)?;
     req.mode = parse_mode(&mode)?;
@@ -164,7 +211,7 @@ pub fn apply(
 /// 备份列表。
 #[tauri::command]
 pub fn backups() -> Result<Vec<BackupDto>, String> {
-    let a = app();
+    let a = context(Scope::User, None)?;
     let list = a.backups().map_err(err)?;
     Ok(list
         .into_iter()
@@ -180,6 +227,6 @@ pub fn backups() -> Result<Vec<BackupDto>, String> {
 /// 回滚到指定备份。
 #[tauri::command]
 pub fn restore(id: String) -> Result<usize, String> {
-    let a = app();
+    let a = context(Scope::User, None)?;
     a.restore(&id).map_err(err)
 }

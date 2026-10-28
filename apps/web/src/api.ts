@@ -10,6 +10,7 @@ import type {
   PlanDto,
   ReceiptDto,
   Scope,
+  GuiSettings,
 } from "./types";
 import { mockCall, mockMode } from "./mock";
 
@@ -29,11 +30,16 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
 
 export const api = {
   appInfo: () => call<AppInfoDto>("app_info"),
-  detect: (scope: Scope) => call<ClientDto[]>("detect", { scope }),
-  readClientConfig: (clientId: string, scope: Scope) =>
-    call<ExistingConfigDto>("read_client_config", { clientId, scope }),
-  matrix: (catalogPath: string, scope: Scope) =>
-    call<MatrixDto>("matrix", { catalogPath, scope }),
+  loadSettings: () => call<GuiSettings>("load_settings"),
+  defaultSettings: () => call<GuiSettings>("default_settings"),
+  saveSettings: (settings: GuiSettings) => call<string[]>("save_settings", { settings }),
+  chooseDirectory: (initial: string | null) => call<string | null>("choose_directory", { initial }),
+  createCatalog: (path: string) => call<string[]>("create_catalog", { path }),
+  detect: (scope: Scope, projectRoot: string | null = null) => call<ClientDto[]>("detect", { scope, projectRoot }),
+  readClientConfig: (clientId: string, scope: Scope, projectRoot: string | null = null) =>
+    call<ExistingConfigDto>("read_client_config", { clientId, scope, projectRoot }),
+  matrix: (catalogPath: string, scope: Scope, projectRoot: string | null = null) =>
+    call<MatrixDto>("matrix", { catalogPath, scope, projectRoot }),
   loadCatalog: (path: string) => call<CatalogDto>("load_catalog", { path }),
   saveCatalog: (path: string, catalog: unknown) =>
     call<string[]>("save_catalog", { path, catalog }),

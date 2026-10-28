@@ -9,6 +9,7 @@ pub mod detect;
 pub mod env;
 pub mod inspect;
 mod planning;
+pub mod settings;
 
 use mcp_core::adapters::{self, Adapter};
 use mcp_core::interpolate::VarCtx;

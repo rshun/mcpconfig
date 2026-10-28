@@ -1,6 +1,15 @@
 export type Scope = "user" | "project" | "local";
 export type MergeMode = "merge" | "replace";
 
+export interface GuiSettings {
+  version: number;
+  catalogPath: string;
+  backupDir: string;
+  defaultScope: "user" | "project";
+  defaultMode: MergeMode;
+  lastProjectDir: string | null;
+}
+
 /** 客户端 id → 该客户端本次选中的 MCP 名称；空映射不选择任何配置。 */
 export type McpSelection = Record<string, string[]>;
 
@@ -10,6 +19,7 @@ export interface PlanInput {
   scope: Scope;
   mode: MergeMode;
   allowCommentStrip: boolean;
+  projectRoot?: string | null;
 }
 
 export type CellState = "ok" | "absent" | "diff" | "unsupported";

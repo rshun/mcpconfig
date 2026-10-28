@@ -119,7 +119,7 @@ export function MatrixPage({
 
         <div className="bottombar">
           <span className="count">
-            已选 {rowCount} 个配置 × {colCount} 个客户端 = {total} 项
+            已选 {rowCount} 个配置 · {colCount} 个客户端 · {total} 组勾选
           </span>
           <span className="hint">写入前会展示逐文件 diff</span>
           <div className="spacer" />

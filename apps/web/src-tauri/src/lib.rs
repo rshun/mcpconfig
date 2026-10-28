@@ -3,6 +3,7 @@
 //! 业务逻辑全在 `mcp-app`；本 crate 只注册 IPC 命令与窗口。
 
 mod commands;
+mod directory;
 mod dto;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -10,6 +11,11 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
+            commands::load_settings,
+            commands::default_settings,
+            commands::save_settings,
+            commands::choose_directory,
+            commands::create_catalog,
             commands::detect,
             commands::read_client_config,
             commands::matrix,

@@ -6,7 +6,9 @@
  *
  * 打开 mock：URL 加 `?mock=1`
  */
-import type { McpSelection, PlanDto, Scope } from "./types";
+import type { GuiSettings, McpSelection, PlanDto, Scope } from "./types";
+
+let settings: GuiSettings = { version: 1, catalogPath: "C:/Users/Demo/.mcp-hub/catalog.yaml", backupDir: "C:/Users/Demo/.mcp-hub/backups", defaultScope: "user", defaultMode: "merge", lastProjectDir: null };
 
 const params =
   typeof window !== "undefined"
@@ -248,9 +250,14 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
   const scope = (args?.scope as Scope) ?? "user";
 
   switch (cmd) {
+    case "load_settings":
+    case "default_settings": return structuredClone(settings) as T;
+    case "save_settings": settings = structuredClone(args?.settings as GuiSettings); return [] as T;
+    case "choose_directory": return "C:/Dev/demo-project" as T;
+    case "create_catalog": return [] as T;
     case "app_info":
       return {
-        version: "0.1.1",
+        version: "0.2.0",
         platform: "windows",
         home: "C:/Users/Chensh",
         projectRoot: "C:/Dev/mcpconfig",

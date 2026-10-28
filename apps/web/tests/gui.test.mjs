@@ -89,6 +89,13 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
       async invoke(command, args) {
         window.testCalls.push({ command, args: structuredClone(args) });
         switch (command) {
+          case "load_settings": return JSON.parse(sessionStorage.getItem("fixtureSettings") || "null") || { version: 1, catalogPath: "C:/test/catalog.yaml", backupDir: "C:/test/backups", defaultScope: "user", defaultMode: "merge", lastProjectDir: null };
+          case "default_settings": return { version: 1, catalogPath: "C:/test/catalog.yaml", backupDir: "C:/test/backups", defaultScope: "user", defaultMode: "merge", lastProjectDir: null };
+          case "save_settings":
+            if (window.rejectSettings) throw new Error("测试设置保存失败");
+            sessionStorage.setItem("fixtureSettings", JSON.stringify(args.settings)); return [];
+          case "choose_directory": return window.cancelDirectory ? null : "C:/test/中文项目";
+          case "create_catalog": return [];
           case "app_info": return { version: "test", platform: "windows", dataDir: "test-only" };
           case "detect": return clients.map((c) => ({ ...c, state: "ready", configured: 1, path: "test-only",
             scopeBlock: args.scope === "local" ? "不支持当前作用域" : null }));
@@ -113,7 +120,7 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
             })),
             };
           }
-          case "load_catalog": return { catalog: { version: 1, entries: [] }, issues: [], entryCount: 0 };
+          case "load_catalog": return { catalog: { version: 1, entries: ["alpha", "beta"].map((name) => ({name, transport: "stdio", command: "python"})) }, issues: [], entryCount: 2 };
           case "backups": return [];
           case "plan": {
             if (window.delayPlan) await new Promise((resolve) => { window.releasePlan = resolve; });
@@ -138,7 +145,7 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
   }
   await send("Page.enable", {}, sessionId);
   await send("Page.addScriptToEvaluateOnNewDocument", { source: `(${installFixture.toString()})()` }, sessionId);
-  await send("Page.navigate", { url: "http://127.0.0.1:4173" }, sessionId);
+  await send("Page.navigate", { url: "http://127.0.0.1:4173/?page=matrix" }, sessionId);
   await until(() => evaluate("document.querySelectorAll('.cell-btn').length === 4"), "矩阵加载");
   const button = (text) => evaluate(`(() => {
     const button = [...document.querySelectorAll('button')].find((b) => b.textContent.includes(${JSON.stringify(text)}));
@@ -192,7 +199,7 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
 
   await until(() => evaluate("document.querySelector('h1')?.textContent === '备份与回滚'"), "应用流程结束");
   const mutations = await evaluate("window.testCalls.filter((c) => ['apply','save_catalog','restore'].includes(c.command)).length");
-  await button("环境检测");
+  await button("Agent");
   // 按行选择客户端，避免同名操作按钮被错误定位。
   const readClient = (index) => evaluate(`document.querySelectorAll('table.grid tbody tr')[${index}].querySelector('button').click()`);
   await readClient(1);
@@ -201,7 +208,7 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
   assert.equal(await evaluate("document.querySelector('[aria-label=\"已有 MCP 配置\"] details').open"), true);
   assert.equal(await evaluate("document.querySelector('[aria-label=\"已有 MCP 配置\"] pre').textContent.includes('[已隐藏]')"), true);
   const readArgs = await evaluate("window.testCalls.filter((c) => c.command === 'read_client_config').at(-1).args");
-  assert.deepEqual(readArgs, { clientId: "codex", scope: "user" });
+  assert.deepEqual(readArgs, { clientId: "codex", scope: "user", projectRoot: null });
 
   await evaluate("window.delayRead = true");
   await readClient(0);
@@ -229,6 +236,9 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
   await pause(150);
   assert.equal(await evaluate("document.querySelector('[aria-label=\"已有 MCP 配置\"]') === null"), true);
 
+  assert.equal(await evaluate("document.querySelectorAll('[aria-label=\"项目目录选择\"]').length"), 1);
+  await button("选择目录…");
+  await until(() => evaluate("window.testCalls.some((c) => c.command === 'detect' && c.args.projectRoot === 'C:/test/中文项目') && !document.querySelector('[aria-label=\"项目目录\"]').disabled"), "项目选择生效");
   await evaluate("window.failMatrix = true");
   await button("加载");
   await until(() => evaluate("document.body.textContent.includes('清单不存在（测试）')"), "清单加载失败");
@@ -247,4 +257,51 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
   await until(() => evaluate("document.body.textContent.includes('自动回滚失败，请检查备份')"), "回滚失败明确提示");
   assert.equal(await evaluate("document.body.textContent.includes('审计写入失败，文件未回滚')"), true);
   assert.equal(await evaluate("document.body.textContent.includes('已自动回滚')"), false);
+
+  // 工作台的两种视角共用逐对勾选，不能扩展成交叉组合。
+  await button("配置工作台");
+  await until(() => evaluate("document.querySelector('[aria-label=\"alpha → Claude Code\"]')"), "工作台加载");
+  await evaluate("document.querySelector('[aria-label=\"alpha → Claude Code\"]').click()");
+  await evaluate("[...document.querySelectorAll('.work-item')].find((b) => b.textContent.includes('beta')).click()");
+  await evaluate("document.querySelector('[aria-label=\"beta → Codex CLI\"]').click()");
+  await button("按 Agent 查看");
+  await button("预览变更");
+  await waitDiff();
+  assert.deepEqual((await lastPlan()).selection, expected);
+  assert.equal((await lastPlan()).projectRoot, "C:/test/中文项目");
+  assert.equal((await lastPlan()).scope, "project");
+
+  // 取消目录选择不得保存设置或改变已预览内容。
+  await evaluate("window.cancelDirectory = true");
+  const settingsSaves = await evaluate("window.testCalls.filter((c) => c.command === 'save_settings').length");
+  await button("选择目录…");
+  await until(() => evaluate("!document.querySelector('[aria-label=\"项目目录\"]').disabled"), "取消目录选择结束");
+  assert.equal(await evaluate("window.testCalls.filter((c) => c.command === 'save_settings').length"), settingsSaves);
+  assert.equal(await evaluate("document.querySelector('h1')?.textContent"), "差异预览");
+  await evaluate("const currentScopeControl = document.querySelector('[aria-label=\"配置范围\"]'); currentScopeControl.value = 'user'; currentScopeControl.dispatchEvent(new Event('change', { bubbles: true }))");
+  await until(() => evaluate("document.querySelector('[aria-label=\"项目目录选择\"]') === null"), "全局范围隐藏目录");
+  await until(() => evaluate("window.testCalls.filter((c) => c.command === 'detect').at(-1).args.scope === 'user'"), "全局检测刷新");
+  assert.equal(await evaluate("window.testCalls.filter((c) => c.command === 'detect').at(-1).args.projectRoot"), null);
+  assert.equal(await evaluate("document.body.textContent.includes('还没有生成计划')"), true);
+
+  // 软件设置持久化与当前工作范围相互独立；重启使用保存的默认值。
+  await button("全局设置");
+  await evaluate("const startupScopeControl = document.querySelector('[aria-label=\"启动默认范围\"]'); startupScopeControl.value = 'project'; startupScopeControl.dispatchEvent(new Event('change', { bubbles: true }))");
+  await evaluate("const defaultStrategy = document.querySelector('[aria-label=\"默认写入策略\"]'); defaultStrategy.value = 'replace'; defaultStrategy.dispatchEvent(new Event('change', { bubbles: true }))");
+  await evaluate("const input = document.querySelector('[aria-label=\"备份目录\"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'C:/test/new-backups'); input.dispatchEvent(new Event('input', { bubbles: true }))");
+  await evaluate("window.rejectSettings = true");
+  await button("保存全局设置");
+  await until(() => evaluate("document.body.textContent.includes('测试设置保存失败')"), "设置失败提示");
+  assert.equal(await evaluate("JSON.parse(sessionStorage.getItem('fixtureSettings')).defaultScope"), "user");
+  await evaluate("window.rejectSettings = false");
+  await button("保存全局设置");
+  await until(() => evaluate("document.body.textContent.includes('设置已保存。默认配置库')"), "设置保存完成");
+  assert.equal(await evaluate("document.querySelector('[aria-label=\"配置范围\"]').value"), "user");
+  await send("Page.reload", {}, sessionId);
+  await until(() => evaluate("document.querySelector('[aria-label=\"项目目录\"]')?.value === 'C:/test/中文项目'"), "重启恢复项目范围及目录");
+  assert.equal(await evaluate("document.querySelector('[aria-label=\"写入策略\"]').value"), "replace");
+  const restored = await evaluate("window.testCalls.find((c) => c.command === 'matrix').args");
+  assert.equal(restored.projectRoot, "C:/test/中文项目");
+  await button("全局设置");
+  assert.equal(await evaluate("document.querySelector('[aria-label=\"备份目录\"]').value"), "C:/test/new-backups");
 });
