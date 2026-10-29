@@ -278,8 +278,11 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     await button('添加 MCP'); await present('[aria-label="MCP 名称"]');
     await setField('MCP 名称', 'alpha'); await button('保存到 MCP 库'); await has('配置库已有同名 MCP');
     const savesBefore = await count('save_catalog');
-    await evaluate('window.confirmAnswer = false'); await escape();
-    assert.equal(await evaluate('!!document.querySelector("dialog[open]")'), true);
+    await evaluate('window.confirmAnswer = false');
+    await click('关闭添加 MCP');
+    assert.equal(await evaluate('!!document.querySelector("dialog[open]")'), true, '拒绝放弃时关闭按钮保留编辑');
+    await escape();
+    assert.equal(await evaluate('!!document.querySelector("dialog[open]")'), true, JSON.stringify(await evaluate('({confirmation: window.lastConfirmation, answer: window.confirmAnswer})')));
     assert.match(await evaluate('window.lastConfirmation'), /未保存/);
     for (let i = 0; i < 14; i++) {
       await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 }, sessionId);

@@ -12,6 +12,12 @@ export function Dialog({ title, children, onClose, busy = false, wide = false }:
     return () => { if (dialog.open) dialog.close(); };
   }, []);
   return <dialog ref={ref} className={`dialog${wide ? " dialog-wide" : ""}`} aria-labelledby={id}
+    onKeyDown={(event) => {
+      if (event.key !== "Escape") return;
+      // 在浏览器执行原生关闭前先经过草稿/写入保护；cancel 仍处理其他原生关闭请求。
+      event.preventDefault(); event.stopPropagation();
+      if (!busy) onClose();
+    }}
     onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}
     onClick={(event) => {
       if (event.target !== ref.current || busy) return;
