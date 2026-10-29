@@ -218,10 +218,10 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     await ready();
     assert.equal(await evaluate('document.querySelector("h1").textContent'), '我的 MCP');
     assert.equal(await evaluate('document.querySelectorAll("nav button").length'), 3);
-    assert.equal(await evaluate('document.querySelector("[aria-label=\"选择项目目录\"]")'), null);
+    assert.equal(await evaluate('document.querySelector("[aria-label=\\"选择项目目录\\"]")'), null);
     await screenshot('library'); await fits();
     await click('查看 project-only');
-    assert.equal(await evaluate('document.querySelector("[aria-label=\"project-only → Claude Code\"]").disabled'), true);
+    assert.equal(await evaluate('document.querySelector("[aria-label=\\"project-only → Claude Code\\"]").disabled'), true);
     await has('仅适用于项目配置');
     await click('查看 alpha'); await click('alpha → Claude Code');
     await click('查看 beta'); await click('beta → Codex CLI');
@@ -253,9 +253,9 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     await click('alpha → Claude Code'); await evaluate('window.delayPlan = false; window.releasePlan()'); await pause(180);
     assert.equal(await evaluate('document.querySelector("dialog")'), null);
     await button('批量矩阵'); await present('.matrix');
-    await evaluate('document.querySelector("button[title=\"alpha → Claude Code\"]").click()');
+    await evaluate('document.querySelector("button[title=\\"alpha → Claude Code\\"]").click()');
     await escape(); await absent('dialog');
-    assert.equal(await evaluate('document.querySelector("[aria-label=\"alpha → Claude Code\"]").checked'), true);
+    assert.equal(await evaluate('document.querySelector("[aria-label=\\"alpha → Claude Code\\"]").checked'), true);
     await click('alpha → Claude Code');
 
     // 编辑采用数组和键值字段，不能用逗号拆分输入；未展示的高级字段原样保留。
@@ -264,7 +264,7 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     await setField('启动参数 1', 'a,b=c');
     await evaluate('document.querySelector(".key-values .text-button").click()');
     await setField('环境变量名称 1', 'CUSTOM_VALUE'); await setField('环境变量值 1', '  one,two=value  ');
-    assert.equal(await evaluate('document.querySelector("[aria-label=\"环境变量值 1\"]").type'), 'password');
+    assert.equal(await evaluate('document.querySelector("[aria-label=\\"环境变量值 1\\"]").type'), 'password');
     await screenshot('entry-editor');
     await button('保存到 MCP 库'); await absent('dialog');
     const saved = (await latest('save_catalog')).catalog.entries.find((e) => e.name === 'alpha');
@@ -291,19 +291,19 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     await setField('配置范围', 'project'); await present('[aria-label="项目目录"]');
     const settingsBefore = await count('save_settings');
     await evaluate('window.cancelDirectory = true'); await button('选择目录…');
-    await until(() => evaluate('!document.querySelector("[aria-label=\"项目目录\"]").disabled'), '取消目录选择');
+    await until(() => evaluate('!document.querySelector("[aria-label=\\"项目目录\\"]").disabled'), '取消目录选择');
     assert.equal(await count('save_settings'), settingsBefore);
     await evaluate('window.cancelDirectory = false'); await button('选择目录…'); await absent('dialog'); await ready();
     assert.equal((await latest('matrix')).projectRoot, 'C:/test/中文项目');
     assert.equal(await evaluate('document.querySelectorAll(".library-table tbody tr").length'), 3);
     await click('查看 project-only');
-    assert.equal(await evaluate('document.querySelector("[aria-label=\"project-only → Claude Code\"]").disabled'), false);
+    assert.equal(await evaluate('document.querySelector("[aria-label=\\"project-only → Claude Code\\"]").disabled'), false);
     await click('project-only → Claude Code'); await button('预览变更'); await previewReady();
     assert.equal((await latest('plan')).projectRoot, 'C:/test/中文项目');
     await button('返回修改'); await absent('dialog');
     await setField('配置范围', 'user'); await ready();
     assert.equal((await latest('detect')).projectRoot, null);
-    assert.equal(await evaluate('document.querySelector("[aria-label=\"选择项目目录\"]")'), null);
+    assert.equal(await evaluate('document.querySelector("[aria-label=\\"选择项目目录\\"]")'), null);
 
     // Agent 读取与导入保持独立；晚到的旧来源读取不覆盖新选择。
     await click('Agents'); await click('查看 Codex CLI 配置'); await present('[aria-label="已有 MCP 配置"]');
@@ -319,10 +319,10 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     assert.equal(await evaluate('document.querySelector(".existing-config")'), null);
     await evaluate('window.failRead = false'); await click('查看 Codex CLI 配置'); await present('.existing-config');
     await button('导入到 MCP 库'); await importReady();
-    assert.equal(await evaluate('document.querySelector("[aria-label=\"选择导入 unsupported\"]").disabled'), true);
+    assert.equal(await evaluate('document.querySelector("[aria-label=\\"选择导入 unsupported\\"]").disabled'), true);
     await button('取消导入'); await absent('dialog'); assert.equal(await count('commit_import'), 0);
     await button('导入到 MCP 库'); await importReady(); await click('选择导入 alpha');
-    assert.equal(await evaluate('document.querySelector("[aria-label=\"处理方式 alpha\"]").value'), 'skip');
+    assert.equal(await evaluate('document.querySelector("[aria-label=\\"处理方式 alpha\\"]").value'), 'skip');
     await setField('处理方式 alpha', 'rename'); await setField('目标名称 alpha', 'alpha-imported');
     await setField('环境变量 alpha /auth/token_env', 'API_KEY'); await button('预览导入'); await importPreviewReady();
     assert.deepEqual((await latest('preview_import')).choices, [{ sourceName: 'alpha', action: 'rename', targetName: 'alpha-imported', bindings: { '/auth/token_env': 'API_KEY' } }]);
@@ -339,7 +339,7 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     await button('确认导入配置库'); await has('已导入 2 项到 MCP 库'); await absent('dialog');
     assert.equal(await evaluate('document.querySelector("h1").textContent'), '我的 MCP');
     assert.deepEqual(Object.keys(await latest('commit_import')).sort(), ['previewId', 'projectRoot', 'scope']);
-    assert.equal(await evaluate('!!document.querySelector("[aria-label=\"查看 alpha-imported\"]")'), true);
+    assert.equal(await evaluate('!!document.querySelector("[aria-label=\\"查看 alpha-imported\\"]")'), true);
     assert.equal(await count('save_catalog'), savesBefore, '导入不走编辑器的明文保存接口');
 
     // 部分写入、回滚失败和审计失败不能展示成全部成功。
@@ -367,13 +367,13 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     assert.equal(await evaluate('JSON.parse(sessionStorage.getItem("fixtureSettings")).defaultScope'), 'user');
     await evaluate('window.rejectSettings = false'); await button('保存全局设置'); await has('设置已保存。默认配置库');
     await screenshot('software-settings');
-    await click('我的 MCP'); assert.equal(await evaluate('document.querySelector("[aria-label=\"配置范围\"]").value'), 'user');
+    await click('我的 MCP'); assert.equal(await evaluate('document.querySelector("[aria-label=\\"配置范围\\"]").value'), 'user');
     await send('Page.reload', {}, sessionId); await ready();
-    assert.equal(await evaluate('document.querySelector("[aria-label=\"配置范围\"]").value'), 'project');
+    assert.equal(await evaluate('document.querySelector("[aria-label=\\"配置范围\\"]").value'), 'project');
     assert.equal((await latest('matrix')).projectRoot, 'C:/test/中文项目');
     await click('查看 beta'); await evaluate('document.querySelector(".technical-details").open = true');
-    assert.equal(await evaluate('document.querySelector("[aria-label=\"写入策略\"]").value'), 'replace');
-    await click('软件设置'); assert.equal(await evaluate('document.querySelector("[aria-label=\"备份目录\"]").value'), 'C:/test/new-backups');
+    assert.equal(await evaluate('document.querySelector("[aria-label=\\"写入策略\\"]").value'), 'replace');
+    await click('软件设置'); assert.equal(await evaluate('document.querySelector("[aria-label=\\"备份目录\\"]").value'), 'C:/test/new-backups');
     await click('我的 MCP');
     await send('Emulation.setDeviceMetricsOverride', { width: 1040, height: 680, deviceScaleFactor: 1, mobile: false }, sessionId);
     await click('查看 beta'); await click('beta → Codex CLI'); await fits();
