@@ -152,7 +152,8 @@ impl ImportSessions {
         let target_key = mcp_io::file_key(target)?;
         // 即使另一 Agent 的文件为空或尚不存在，也不能将其当作配置库覆盖。
         for client in adapters::all() {
-            for scope in [Scope::User, Scope::Project, Scope::Local] {
+            // local 的 #projects.<proj> 是虚拟位置，其实际 .claude.json 已在 user 范围保护。
+            for scope in [Scope::User, Scope::Project] {
                 let candidates = adapters::paths::candidates(client.id(), scope, app.platform);
                 for path in app.env.expand_all(&candidates, app.platform) {
                     if mcp_io::file_key(&path)? == target_key {
