@@ -174,7 +174,7 @@ export default function App() {
   const currentTitle = NAV.find((item) => item.id === page)?.label ?? "软件设置";
   const libraryTitle = catalogPath && fileName(catalogPath) !== "catalog.yaml" ? fileName(catalogPath) : "默认配置库";
   return <div className="shell">
-    <aside className="sidebar"><div className="brand"><span className="brand-mark"><Icon name="library" size={22} /></span><div>MCP Hub<small>一份配置，连接多个 Agent</small></div></div>
+    <aside className="sidebar"><div className="brand"><span className="brand-mark"><Icon name="library" size={22} /></span><div>MCP Hub<small>统一管理 MCP 配置</small></div></div>
       <button className="library-switch" disabled={busy || dirty || !!overlay} onClick={() => openOverlay({ kind: "library" })} aria-label="管理配置库"><Icon name="folder" /><span><small>当前配置库</small><b>{libraryTitle}</b></span><Icon name="chevron" size={15} /></button>
       <nav className="nav" aria-label="主导航">{NAV.map((item) => <button key={item.id} aria-label={item.label} disabled={writing} className={`nav-item${page === item.id ? " active" : ""}`} aria-current={page === item.id ? "page" : undefined} onClick={() => navigate(item.id)}><Icon name={item.icon} /><span>{item.label}<small>{item.hint}</small></span>{item.id === "library" && !!entries.length && <span className="count">{entries.length}</span>}</button>)}</nav>
       <div className="sidebar-footer"><button aria-label="软件设置" className={`nav-item${page === "settings" ? " active" : ""}`} disabled={writing} onClick={() => navigate("settings")}><Icon name="settings" /><span>软件设置</span></button><div className="version-line"><span className="status-dot" />{info ? `v${info.version}` : "正在初始化…"}<span>本地配置工具</span></div></div>

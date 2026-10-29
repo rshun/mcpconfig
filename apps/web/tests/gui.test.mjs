@@ -179,6 +179,8 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     };
   }
   await send("Page.enable", {}, sessionId);
+  await send("Page.bringToFront", {}, sessionId);
+  await send("Emulation.setFocusEmulationEnabled", { enabled: true }, sessionId);
   await send("Emulation.setDeviceMetricsOverride", { width: 1320, height: 860, deviceScaleFactor: 1, mobile: false }, sessionId);
   await send("Page.addScriptToEvaluateOnNewDocument", { source: `(${installFixture.toString()})()` }, sessionId);
   const button = (text) => evaluate(`(() => {
@@ -204,7 +206,7 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
   const previewReady = () => present('[aria-label="分发变更预览"]');
   const importReady = () => present('[aria-label="选择导入 alpha"]');
   const importPreviewReady = () => present('[aria-label="导入差异预览"]');
-  const escape = async () => { await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' }, sessionId); await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' }, sessionId); };
+  const escape = async () => { await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }, sessionId); await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }, sessionId); };
   async function screenshot(name) {
     await mkdir('test-artifacts', { recursive: true });
     const { data } = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }, sessionId);
@@ -280,8 +282,8 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     assert.equal(await evaluate('!!document.querySelector("dialog[open]")'), true);
     assert.match(await evaluate('window.lastConfirmation'), /未保存/);
     for (let i = 0; i < 14; i++) {
-      await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab' }, sessionId);
-      await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab' }, sessionId);
+      await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 }, sessionId);
+      await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 }, sessionId);
       assert.equal(await evaluate('!!document.activeElement.closest("dialog") || document.activeElement === document.body'), true, '焦点不能进入背景控件');
     }
     await evaluate('window.confirmAnswer = true'); await escape(); await absent('dialog');
