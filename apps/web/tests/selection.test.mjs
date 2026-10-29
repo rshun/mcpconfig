@@ -156,3 +156,28 @@ test("演示导入需要完整变量映射，取消和重复确认均被阻止",
   await mockCall("cancel_import", { scanId: cancelled.scanId });
   await assert.rejects(mockCall("preview_import", { scanId: cancelled.scanId, choices: [choice] }));
 });
+
+const { scopeReason, scopeLabel, variableNames, fileName } = await import('../src/library.ts');
+const { pairMap, pairRows } = await import('../src/editor-data.ts');
+test('配置库保留所有范围条目，按当前范围说明可用性', () => {
+  const entry = { name: 'project-tools', transport: 'stdio', scope: 'project' };
+  assert.match(scopeReason(entry, 'user'), /项目/);
+  assert.equal(scopeReason(entry, 'project'), null);
+  assert.equal(scopeReason({ ...entry, scope: 'inherit' }, 'user'), null);
+  assert.match(scopeReason({ ...entry, scope: 'local' }, 'user'), /暂不支持/);
+  assert.equal(scopeLabel(entry), '仅项目');
+  assert.equal(fileName('C:\\work\\中文项目\\'), '中文项目');
+});
+test('详情只提取变量名，不把字面值或无效变量展示为凭据', () => {
+  const entry = { name: 'http', transport: 'http', url: '${ENV:MCP_URL}', env: { DEMO: '${VALUE}', OTHER: 'your_secret_here' }, auth: { type: 'bearer', token_env: 'MCP_AUTH' } };
+  assert.deepEqual(variableNames(entry), ['MCP_URL', 'VALUE', 'MCP_AUTH']);
+});
+test('键值编辑保留逗号、等号、空格、空值并拒绝重复和无效名称', () => {
+  const map = { ARGS: '  one,two=value  ', EMPTY: '' };
+  assert.deepEqual(pairMap(pairRows(map)), map);
+  assert.equal(pairMap([]), undefined);
+  assert.throws(() => pairMap([{ key: 'BAD KEY', value: 'x' }]), /变量名/);
+  assert.throws(() => pairMap([{ key: 'A', value: 'x' }, { key: 'A', value: 'y' }]), /重复/);
+  assert.throws(() => pairMap([{ key: 'Authorization', value: 'x' }, { key: 'authorization', value: 'y' }], true), /重复/);
+  assert.deepEqual(pairMap([{ key: '__proto__', value: 'safe_value' }], true), JSON.parse('{"__proto__":"safe_value"}'));
+});

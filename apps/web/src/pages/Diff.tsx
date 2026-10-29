@@ -1,150 +1,33 @@
-import type { FileDto, PlanDto } from "../types";
-import { Banner, Empty, Pill } from "../components/ui";
+import { Icon } from "../components/Icon";
+import { Banner, Pill } from "../components/ui";
+import type { FileDto, MergeMode, PlanDto } from "../types";
 
 function DiffBody({ file }: { file: FileDto }) {
-  if (!file.diff) {
-    return (
-      <div className="diff-body">
-        <div className="center-box" style={{ padding: 20 }}>
-          {file.existed ? "内容已一致，无需写入" : "将新建此文件"}
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="diff-body">
-      {file.diff.split("\n").map((line, i) => {
-        const sign = line[0];
-        const kind = sign === "+" ? "add" : sign === "-" ? "del" : "ctx";
-        return (
-          <div key={i} className={`diff-line ${kind}`}>
-            <span className="sign">{kind === "ctx" ? "" : sign}</span>
-            <span>{kind === "ctx" ? line : line.slice(1)}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
+  return <pre className="diff-body">{file.diff.split("\n").map((line, index) => <div key={index} className={`diff-line ${line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : "ctx"}`}>{line || " "}</div>)}</pre>;
 }
-
-export function DiffPage({
-  plan,
-  applying,
-  onApply,
-}: {
-  plan: PlanDto | null;
-  applying: boolean;
-  onApply: () => void;
+export function DiffPage({ plan, applying, onApply, onBack, mode, onModeChange, onReplan, planning }: {
+  plan: PlanDto | null; applying: boolean; onApply: () => void; onBack: () => void; mode: MergeMode;
+  onModeChange: (mode: MergeMode) => void; onReplan: () => void; planning: boolean;
 }) {
-  if (!plan) {
-    return (
-      <Empty
-        title="还没有生成计划"
-        hint="回到「客户端配置」勾选目标，然后点「生成差异预览」"
-      />
-    );
-  }
-
-  const blocked = plan.files.filter((f) => f.blocked);
-  const writable = plan.files.filter((f) => f.willWrite);
-  const unchanged = plan.files.filter((f) => !f.blocked && !f.willWrite);
-
-  return (
-    <>
-      {plan.missingVars.length > 0 && (
-        <Banner tone="warn">
-          <div>
-            <b>未解析的环境变量</b>（写入时会保留占位符）：
-            <div className="mono">{plan.missingVars.join("、")}</div>
-          </div>
-        </Banner>
-      )}
-      {plan.skipped.length > 0 && (
-        <Banner tone="warn">
-          <div>
-            <b>已跳过 {plan.skipped.length} 个客户端</b>
-            {plan.skipped.map((s) => (
-              <div key={s.clientId} className="mono">
-                · {s.clientId}：{s.reason}
-              </div>
-            ))}
-          </div>
-        </Banner>
-      )}
-
-      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 12 }}>
-        <h1 style={{ margin: 0 }}>差异预览</h1>
-        <span className="muted">
-          {plan.entryCount} 条配置 · {writable.length} 个文件待写入
-          {unchanged.length > 0 && ` · ${unchanged.length} 个无变化`}
-          {blocked.length > 0 && ` · ${blocked.length} 个被跳过`}
-        </span>
-        <div className="spacer" />
-        <button
-          className="btn primary"
-          disabled={applying || writable.length === 0}
-          onClick={onApply}
-        >
-          {applying ? "写入中…" : `确认写入 ${writable.length} 个文件`}
-        </button>
-      </div>
-
-      <p className="muted">展示本次 MCP 条目的脱敏结构差异，参数、地址、环境变量值等已隐藏；文件格式仍按各 Agent 要求写入。</p>
-
-      {writable.length === 0 && (
-        <Banner tone="ok">
-          所有目标内容均已一致，无需写入（幂等）。
-        </Banner>
-      )}
-
-      {plan.files.map((file) => {
-        if (file.blocked) {
-          return (
-            <div className="diff-file" key={file.clientId}>
-              <div className="diff-head">
-                <b>{file.clientName}</b>
-                <Pill tone="warn">已跳过</Pill>
-                <span className="mono muted">{file.path}</span>
-              </div>
-              <div className="diff-body">
-                <div className="center-box" style={{ padding: 18 }}>
-                  {file.blocked}
-                </div>
-              </div>
-            </div>
-          );
-        }
-        if (!file.willWrite) return null;
-        return (
-          <div className="diff-file" key={file.clientId}>
-            <div className="diff-head">
-              <b>{file.clientName}</b>
-              <Pill>{file.format}</Pill>
-              {file.newCount > 0 && (
-                <Pill tone="ok">
-                  新增 {file.newCount}
-                </Pill>
-              )}
-              {file.updateCount > 0 && (
-                <Pill tone="warn">
-                  修改 {file.updateCount}
-                </Pill>
-              )}
-              <span className="mono muted">{file.path}</span>
-              <div className="spacer" />
-              <span className="muted">
-                {file.existed ? "已存在，将合并" : "将新建"}
-              </span>
-            </div>
-            <DiffBody file={file} />
-            {file.warnings.map((w) => (
-              <div className="banner warn" style={{ margin: 0, borderRadius: 0 }} key={w}>
-                {w}
-              </div>
-            ))}
-          </div>
-        );
-      })}
-    </>
-  );
+  const writable = plan?.files.filter((file) => file.willWrite && !file.blocked) ?? [];
+  const blocked = plan?.files.filter((file) => file.blocked) ?? [];
+  return <section className="preview-page" aria-label="分发变更预览">
+    <div className="preview-intro"><span className="preview-symbol"><Icon name="shield" size={23} /></span><div><h3>先核对影响，再确认写入</h3><p>只处理勾选的配置，其他条目保持不变。实际写入前会备份原文。</p></div></div>
+    <details className="preview-options"><summary>写入策略：{mode === "merge" ? "字段合并" : "整条替换"}</summary><label className="field-label">处理同名 MCP<select className="select" aria-label="预览写入策略" value={mode} disabled={applying || planning} onChange={(event) => onModeChange(event.target.value as MergeMode)}><option value="merge">字段合并 · 保留其他字段</option><option value="replace">整条替换 · 未选中的条目保留</option></select></label><p className="field-hint">策略变更后需要重新生成预览。</p></details>
+    {!plan ? <div className="welcome-state compact"><h3>需要重新预览</h3><p>选择或写入策略已变化，旧预览不能用于确认。</p><button className="btn primary" disabled={planning} onClick={onReplan}>{planning ? "正在生成…" : "重新生成预览"}</button></div> : <>
+      <div className="preview-counts"><b>{plan.entryCount} 个 MCP</b><span>涉及 {plan.files.length} 个实际文件</span><span className={blocked.length ? "warning-text" : ""}>{writable.length} 个待写入{blocked.length ? ` · ${blocked.length} 个被阻止` : ""}</span></div>
+      {!!plan.issues.length && <Banner tone="warn"><div>{plan.issues.map((issue) => <p key={issue}>{issue}</p>)}</div></Banner>}
+      {!!plan.missingVars.length && <Banner tone="warn"><div><b>存在未解析的变量</b><p>写入会保留占位符，请核对目标运行环境：<span className="mono">{plan.missingVars.join("、")}</span></p></div></Banner>}
+      {!!plan.skipped.length && <Banner tone="warn"><div><b>已跳过 {plan.skipped.length} 个 Agent</b>{plan.skipped.map((item) => <p key={item.clientId}>{item.clientId}：{item.reason}</p>)}</div></Banner>}
+      {!writable.length && <Banner tone={blocked.length || plan.skipped.length ? "warn" : "ok"}>{blocked.length || plan.skipped.length ? "本次没有可写入的目标，请检查阻止和跳过原因。" : "目标内容已一致，本次无需写入。"}</Banner>}
+      <div className="file-plans">{plan.files.map((file) => <article className={`file-plan${file.blocked ? " blocked" : ""}`} key={`${file.path}:${file.clientId}`}><div className="file-plan-head"><Icon name="folder" size={19} /><b>{file.clientName}</b><div className="spacer" /><Pill tone={file.blocked ? "warn" : file.willWrite ? "ok" : "plain"}>{file.blocked ? "已阻止" : file.willWrite ? file.existed ? "更新" : "新建" : "无变化"}</Pill></div>
+        <code className="actual-file-path">{file.path}</code><div className="file-plan-meta"><span>{file.scope === "user" ? "全局配置" : file.scope === "project" ? "项目配置" : "本地配置"}</span><span>{file.format}</span><span>新增 {file.newCount} · 更新 {file.updateCount} · 保持 {file.unchangedCount}</span></div>
+        {file.blocked && <Banner tone="warn">{file.blocked}</Banner>}
+        {file.warnings.map((warning) => <Banner tone="warn" key={warning}>{warning}</Banner>)}
+        {file.diff && <details className="raw-diff"><summary>查看脱敏差异</summary><DiffBody file={file} /><p className="field-hint">参数、地址、环境变量值和凭据已隐藏。</p></details>}
+      </article>)}</div>
+    </>}
+    <footer className="editor-footer preview-footer"><span className="field-hint"><Icon name="shield" size={15} />保存原文备份</span><div className="spacer" /><button className="btn" disabled={applying} onClick={onBack}>返回修改</button>
+      {plan && <button className="btn primary" disabled={applying || planning || !writable.length} onClick={onApply}>{applying ? "正在写入…" : `确认写入 ${writable.length} 个文件`}</button>}</footer>
+  </section>;
 }

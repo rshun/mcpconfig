@@ -310,6 +310,7 @@ pub struct BackupDto {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogDto {
+    pub exists: bool,
     /// 原样返回清单（前端编辑后回传）
     pub catalog: serde_json::Value,
     pub issues: Vec<String>,

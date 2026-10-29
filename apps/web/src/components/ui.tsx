@@ -42,7 +42,7 @@ export function Banner({
   tone?: "info" | "warn" | "ok" | "danger";
   children: ReactNode;
 }) {
-  return <div className={`banner ${tone}`}>{children}</div>;
+  return <div className={`banner ${tone}`} role={tone === "danger" ? "alert" : undefined}>{children}</div>;
 }
 
 export function Empty({ title, hint }: { title: string; hint?: string }) {

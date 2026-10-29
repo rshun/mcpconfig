@@ -377,13 +377,17 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
 
     case "load_catalog":
       return {
-        catalog: { version: 1, entries: ENTRIES },
+        exists: true,
+        catalog: { version: 1, entries: ENTRIES.map(({ desc, tokenEnv, ...entry }) => ({ ...entry, description: desc, ...(tokenEnv ? { auth: { type: "bearer", token_env: tokenEnv } } : {}) })) },
         issues: [],
         entryCount: ENTRIES.length,
       } as T;
 
-    case "save_catalog":
+    case "save_catalog": {
+      const catalog = args?.catalog as { entries: any[] };
+      ENTRIES.splice(0, ENTRIES.length, ...catalog.entries.map((entry) => ({ ...entry, desc: entry.description ?? "", tokenEnv: entry.auth?.token_env, scope: entry.scope ?? "inherit" })));
       return [] as unknown as T;
+    }
 
     case "plan": {
       return selectedPlan(args, scope) as T;

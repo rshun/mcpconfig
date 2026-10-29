@@ -16,6 +16,8 @@ interface Entry {
   scope?: "inherit" | Scope;
   tags?: string[];
   overrides?: unknown;
+  enabled?: boolean;
+  timeout_seconds?: number;
 }
 
 const SCOPE_OPTIONS: { value: string; label: string }[] = [

@@ -144,6 +144,7 @@ export interface BackupDto {
 }
 
 export interface CatalogDto {
+  exists?: boolean;
   catalog: any;
   issues: string[];
   entryCount: number;

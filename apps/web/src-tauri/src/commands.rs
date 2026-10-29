@@ -193,13 +193,65 @@ pub fn matrix(
 #[tauri::command]
 pub fn load_catalog(path: String) -> Result<CatalogDto, String> {
     let a = app();
-    let (cat, issues) = a.load_catalog(std::path::Path::new(&path)).map_err(err)?;
+    read_catalog(&a, std::path::Path::new(&path))
+}
+
+fn read_catalog(a: &App, path: &std::path::Path) -> Result<CatalogDto, String> {
+    match std::fs::metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(CatalogDto {
+                exists: false,
+                catalog: serde_json::json!({"version": 1, "entries": []}),
+                issues: Vec::new(),
+                entry_count: 0,
+            })
+        }
+        Err(_) => return Err("无法读取配置库，请检查路径和权限".into()),
+        Ok(_) => {}
+    }
+    let (cat, issues) = a.load_catalog(path).map_err(err)?;
     let value = serde_json::to_value(&cat).map_err(err)?;
     Ok(CatalogDto {
+        exists: true,
         entry_count: cat.entries.len(),
         catalog: value,
         issues,
     })
+}
+
+#[cfg(test)]
+mod catalog_tests {
+    use super::*;
+    #[test]
+    fn absent_library_is_an_empty_state_but_corruption_is_an_error() {
+        let root = std::env::temp_dir().join(format!(
+            "mcphub-desktop-catalog-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let app = App::with_home(
+            root.join("data"),
+            mcp_app::HostEnv {
+                home: root.clone(),
+                appdata: None,
+                project_root: None,
+            },
+            mcp_core::Platform::current(),
+        );
+        let path = root.join("catalog.yaml");
+        assert!(!read_catalog(&app, &path).unwrap().exists);
+        assert!(!path.exists());
+        assert!(!app.engine.home().exists());
+        std::fs::write(&path, "broken: your_secret_here").unwrap();
+        let error = read_catalog(&app, &path).err().unwrap();
+        assert!(!error.contains("your_secret_here"));
+        std::fs::write(&path, "version: 1\nentries: []\n").unwrap();
+        assert!(read_catalog(&app, &path).unwrap().exists);
+    }
 }
 
 /// 保存清单（写回 YAML）。

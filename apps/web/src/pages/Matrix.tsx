@@ -32,7 +32,7 @@ export function MatrixPage({
     return (
       <Empty
         title="当前作用域下没有配置项"
-        hint={`清单里没有 ${SCOPE_LABEL[matrix.scope] ?? matrix.scope} 的条目。可在「MCP配置」页新增，或切换顶部作用域。`}
+        hint={`配置库没有 ${SCOPE_LABEL[matrix.scope] ?? matrix.scope} 的条目。可在「我的 MCP」添加，或切换工作范围。`}
       />
     );
   }

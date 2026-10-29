@@ -2,14 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { ImportAction, ImportChoice, ImportPreview, ImportResult, ImportScan, Scope } from "../types";
 import { Banner } from "../components/ui";
+import { fileName } from "../library";
 
 type Draft = ImportChoice & { selected: boolean };
 const LABEL = { skip: "跳过", add: "新增", rename: "重命名新增", replace: "替换同名项" };
 
-export function ImportPanel({ clientId, catalogPath, scope, projectRoot, onClose, onDirty, onBusy, onImported }: {
+export function ImportPanel({ clientId, catalogPath, scope, projectRoot, onClose, onDirty, onBusy, onImported, embedded = false }: {
   clientId: string; catalogPath: string; scope: Scope; projectRoot: string | null;
   onClose: () => void; onDirty: (dirty: boolean) => void; onBusy: (busy: boolean) => void;
   onImported: (result: ImportResult) => Promise<void>;
+  embedded?: boolean;
 }) {
   const [scan, setScan] = useState<ImportScan | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
@@ -71,12 +73,13 @@ export function ImportPanel({ clientId, catalogPath, scope, projectRoot, onClose
     finally { setCommitting(false); onBusy(false); }
   }
   const replacing = preview?.changes.some((change) => change.action === "replace") ?? false;
-  return <section ref={panelRef} className="panel import-panel" aria-label="从 Agent 导入配置库">
-    <div className="panel-head"><b>从 Agent 导入配置库</b><div className="spacer" />
-      <button className="btn small" disabled={committing} onClick={onClose}>取消导入</button></div>
+  return <section ref={panelRef} className={`panel import-panel${embedded ? " embedded" : ""}`} aria-label="从 Agent 导入配置库">
+    {!embedded && <div className="panel-head"><b>从 Agent 导入配置库</b><div className="spacer" />
+      <button className="btn small" disabled={committing} onClick={onClose}>取消导入</button></div>}
     <div className="panel-body">
-      <p>来源：<span className="mono path-note">{scan?.sourcePath ?? "扫描中…"}</span><br />
-        目标：<span className="mono path-note">{scan?.catalogPath ?? catalogPath}</span>{scan && !scan.catalogExists && "（确认后新建）"}</p>
+      <div className="import-route"><span>{clientId}</span><span aria-hidden="true">→</span><b>{fileName(scan?.catalogPath ?? catalogPath)}</b><span className="pill">{scope === "user" ? "全局" : "项目"}</span>{scan && !scan.catalogExists && <small>确认后新建</small>}</div>
+      <div className="import-steps"><span className={!preview ? "active" : ""}>1 选择与映射</span><span aria-hidden="true">→</span><span className={preview ? "active" : ""}>2 预览并保存</span></div>
+      <details className="import-locations"><summary>来源与目标文件</summary><p>来源：<code>{scan?.sourcePath ?? "扫描中…"}</code></p><p>目标：<code>{scan?.catalogPath ?? catalogPath}</code></p></details>
       <Banner>源 Agent 文件保持不变。原始参数、地址和凭据不会返回前端；隐藏字段需填入环境变量名，不要填写密钥值。
         原环境变量引用会保留。导入不会创建变量或检查变量值，也不会分发到其他 Agent。</Banner>
       {error && <Banner tone="danger">{error}</Banner>}
@@ -104,10 +107,11 @@ export function ImportPanel({ clientId, catalogPath, scope, projectRoot, onClose
           </article>;
         })}
         {scan?.items.length === 0 && <p>来源文件中没有 MCP 条目。</p>}
-        <button className="btn primary" disabled={!ready || busy || committing} onClick={makePreview}>{busy ? "处理中…" : "预览导入"}</button>
+        <div className="import-controls"><button className="btn" disabled={committing} onClick={onClose}>取消导入</button><div className="spacer" /><button className="btn primary" disabled={!ready || busy || committing} onClick={makePreview}>{busy ? "处理中…" : "预览导入"}</button></div>
       </fieldset>
       {preview && <div ref={previewRef} className="import-preview" aria-label="导入差异预览">
         <h2>将导入 {preview.changes.length} 项</h2>
+        <div className="source-path"><span>本次保存到</span><code>{preview.catalogPath}</code></div>
         {preview.changes.map((change) => <details key={change.targetName} open>
           <summary>{LABEL[change.action]} · {change.sourceName} → {change.targetName}</summary>
           {change.before !== null && <><h4>原条目（值已隐藏）</h4><pre>{JSON.stringify(change.before, null, 2)}</pre></>}

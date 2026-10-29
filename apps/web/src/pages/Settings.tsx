@@ -3,8 +3,8 @@ import { api } from "../api";
 import type { GuiSettings } from "../types";
 import { Banner, Field } from "../components/ui";
 
-export function SettingsPage({ settings, dataDir, onSave, onDirty }: { settings: GuiSettings; dataDir: string;
-  onSave: (settings: GuiSettings) => Promise<void>; onDirty: (dirty: boolean) => void }) {
+export function SettingsPage({ settings, dataDir, onSave, onDirty, onBusy }: { settings: GuiSettings; dataDir: string;
+  onSave: (settings: GuiSettings) => Promise<void>; onDirty: (dirty: boolean) => void; onBusy: (busy: boolean) => void }) {
   const [draft, setDraft] = useState(settings);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -12,12 +12,12 @@ export function SettingsPage({ settings, dataDir, onSave, onDirty }: { settings:
     const next = { ...draft, ...value }; setDraft(next); onDirty(JSON.stringify(next) !== JSON.stringify(settings));
   }
   async function save() {
-    setSaving(true); setMessage("");
+    setSaving(true); onBusy(true); setMessage("");
     try { await onSave(draft); onDirty(false); setMessage("设置已保存。默认配置库、范围和写入策略将在下次启动时使用；当前工作范围保持不变。"); }
     catch (e) { setMessage(`保存失败：${String(e)}`); }
-    finally { setSaving(false); }
+    finally { setSaving(false); onBusy(false); }
   }
-  return <><div className="eyebrow">APPLICATION PREFERENCES</div><h1>全局设置</h1><p className="sub">软件的默认行为，独立于当前工作台中的全局配置和项目配置。</p>
+  return <><div className="eyebrow">APPLICATION PREFERENCES</div><h1>软件设置</h1><p className="sub">设置默认行为，与当前任务的全局配置、项目配置相互独立。</p>
     {message && <Banner tone={message.startsWith("保存失败") ? "danger" : "ok"}>{message}</Banner>}
     <div className="panel settings-panel"><div className="panel-head">启动与存储</div><div className="panel-body"><fieldset disabled={saving} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <Field label="默认配置库文件"><input aria-label="默认配置库文件" className="input" value={draft.catalogPath} onChange={(e) => patch({ catalogPath: e.target.value })} /></Field>

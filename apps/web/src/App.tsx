@@ -1,78 +1,109 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, isMock } from "./api";
 import { selectionFromCells } from "./selection";
+import { fileName } from "./library";
 import type { AppInfoDto, BackupDto, CatalogDto, ClientDto, GuiSettings, MatrixDto, MergeMode, PlanDto, PlanInput, ReceiptDto, Scope } from "./types";
+import type { Entry } from "./pages/Catalog";
 import { MatrixPage } from "./pages/Matrix";
-import { CatalogPage, type Entry } from "./pages/Catalog";
+import { LibraryPage } from "./pages/Library";
+import { EntryEditor } from "./pages/EntryEditor";
 import { DiffPage } from "./pages/Diff";
 import { BackupsPage, DetectPage } from "./pages/Panels";
-import { Workbench } from "./pages/Workbench";
 import { SettingsPage } from "./pages/Settings";
 import { Banner } from "./components/ui";
+import { Icon, type IconName } from "./components/Icon";
+import { Dialog } from "./components/Dialog";
+import { LocationForm } from "./components/LocationForm";
 
-type Page = "workbench" | "matrix" | "catalog" | "diff" | "detect" | "backups" | "settings";
-const NAV: { id: Page; label: string; icon: string }[] = [
-  { id: "workbench", label: "配置工作台", icon: "▦" }, { id: "detect", label: "Agent", icon: "◎" },
-  { id: "backups", label: "变更记录", icon: "↶" }, { id: "settings", label: "全局设置", icon: "⚙" },
+type Page = "library" | "agents" | "history" | "settings";
+type Overlay = { kind: "editor"; entry: Entry | null } | { kind: "library" | "project" | "matrix" | "preview" } | null;
+type Feedback = { tone: "ok" | "warn" | "danger"; text: string } | null;
+const NAV: { id: Page; label: string; icon: IconName; hint: string }[] = [
+  { id: "library", label: "我的 MCP", icon: "library", hint: "维护配置与选择目标" },
+  { id: "agents", label: "Agents", icon: "agents", hint: "查看与导入已有配置" },
+  { id: "history", label: "变更历史", icon: "history", hint: "写入结果与备份恢复" },
 ];
-const initialPage = new URLSearchParams(window.location.search).get("page") as Page;
+const deepLink = new URLSearchParams(window.location.search).get("page") || "library";
+const PAGE_ALIASES: Record<string, Page> = { library: "library", workbench: "library", catalog: "library", matrix: "library", diff: "library", agents: "agents", detect: "agents", history: "history", backups: "history", settings: "settings" };
+
 export default function App() {
-  const [page, setPage] = useState<Page>(["workbench", "matrix", "catalog", "diff", "detect", "backups", "settings"].includes(initialPage) ? initialPage : "workbench");
+  const [page, setPage] = useState<Page>(PAGE_ALIASES[deepLink] ?? "library");
+  const [overlay, setOverlay] = useState<Overlay>(deepLink === "matrix" ? { kind: "matrix" } : null);
   const [settings, setSettings] = useState<GuiSettings | null>(null);
   const [settingsValid, setSettingsValid] = useState(false);
   const [catalogPath, setCatalogPath] = useState("");
-  const [pathInput, setPathInput] = useState("");
+  const [catalog, setCatalog] = useState<CatalogDto | null>(null);
+  const [catalogState, setCatalogState] = useState<"loading" | "ready" | "missing" | "error">("loading");
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [scope, setScope] = useState<Scope>("user");
   const [project, setProject] = useState<string | null>(null);
-  const [projectInput, setProjectInput] = useState("");
   const [mode, setMode] = useState<MergeMode>("merge");
   const [info, setInfo] = useState<AppInfoDto | null>(null);
   const [matrix, setMatrix] = useState<MatrixDto | null>(null);
   const [clients, setClients] = useState<ClientDto[] | null>(null);
-  const [catalog, setCatalog] = useState<CatalogDto | null>(null);
-  const [entries, setEntries] = useState<Entry[]>([]);
+  const [clientError, setClientError] = useState<string | null>(null);
   const [backups, setBackups] = useState<BackupDto[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [focus, setFocus] = useState<string | null>(null);
   const [plan, setPlan] = useState<PlanDto | null>(null);
   const [planRequest, setPlanRequest] = useState<PlanInput | null>(null);
   const [receipt, setReceipt] = useState<ReceiptDto | null>(null);
   const [loading, setLoading] = useState(true);
-  const [applying, setApplying] = useState(false);
-  const [choosing, setChoosing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [planning, setPlanning] = useState(false);
+  const [writing, setWriting] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const planRevision = useRef(0);
+  const [feedback, setFeedback] = useState<Feedback>(null);
   const readRevision = useRef(0);
+  const planRevision = useRef(0);
+  const planningRequest = useRef(0);
+  const backupRevision = useRef(0);
+  const entries = (catalog?.catalog?.entries ?? []) as Entry[];
+  const editingEntry = overlay?.kind === "editor" ? overlay.entry : null;
   const projectRoot = scope === "user" ? null : project;
   const contextReady = settingsValid && (scope === "user" || !!project);
-  const invalidatePlan = useCallback(() => {
-    planRevision.current++; setPlan(null); setPlanRequest(null);
-  }, []);
-  function canLeave() { return !dirty || window.confirm("有未保存的编辑，确认放弃这些编辑？"); }
-  function navigate(next: Page) { if (applying || !canLeave()) return; setDirty(false); setPage(next); }
+  const busy = writing || !settingsValid;
+  const contextLocked = busy || dirty || overlay !== null;
 
-  const refresh = useCallback(async (path: string, sc: Scope, root: string | null) => {
-    invalidatePlan(); const revision = ++readRevision.current;
-    setLoading(true); setError(null); setSelected(new Set()); setMatrix(null); setClients(null);
-    const effective = sc === "user" ? null : root;
-    if (sc !== "user" && !effective) { setLoading(false); return; }
-    const [m, c] = await Promise.allSettled([api.matrix(path, sc, effective), api.detect(sc, effective)]);
+  const invalidatePlan = useCallback(() => { planRevision.current++; setPlan(null); setPlanRequest(null); }, []);
+  function canLeave() { return !dirty || window.confirm("有未保存的修改，确认放弃这些修改？"); }
+  function navigate(next: Page) {
+    if (writing || !canLeave()) return;
+    invalidatePlan(); setDirty(false); setPage(next); setOverlay(null); setFeedback(null);
+  }
+  function closeOverlay() {
+    if (writing || !canLeave()) return;
+    if (overlay?.kind === "preview") invalidatePlan();
+    setOverlay(null); setDirty(false);
+  }
+  function openOverlay(value: Exclude<Overlay, null>) {
+    if (writing || !settingsValid || !canLeave()) return;
+    invalidatePlan(); setDirty(false); setOverlay(value);
+  }
+  function openEditor(entry: Entry | null) { if (!busy) { setFeedback(null); openOverlay({ kind: "editor", entry }); } }
+  const refresh = useCallback(async (path: string, currentScope: Scope, root: string | null) => {
+    const revision = ++readRevision.current;
+    invalidatePlan(); setLoading(true); setSelected(new Set()); setMatrix(null); setClientError(null);
+    setClients(null); setCatalogError(null);
+    const effectiveRoot = currentScope === "user" ? null : root;
+    const canDetect = currentScope === "user" || !!effectiveRoot;
+    const [library, detected] = await Promise.allSettled([api.loadCatalog(path), canDetect ? api.detect(currentScope, effectiveRoot) : Promise.resolve(null)]);
     if (revision !== readRevision.current) return;
-    setMatrix(m.status === "fulfilled" ? m.value : null);
-    setClients(c.status === "fulfilled" ? c.value : null);
-    const failures = [m, c].flatMap((r) => r.status === "rejected" ? [String(r.reason)] : []);
-    if (failures.length) setError(failures.join("；"));
-    setLoading(false);
+    let current: CatalogDto | null = null;
+    if (library.status === "fulfilled") {
+      current = library.value; setCatalog(current); setCatalogState(current.exists === false ? "missing" : "ready");
+    } else { setCatalog(null); setCatalogState("error"); setCatalogError(String(library.reason)); }
+    if (detected.status === "fulfilled") setClients(detected.value);
+    else { setClients(null); setClientError(String(detected.reason)); }
+    if (current && current.exists !== false && canDetect) {
+      try { const value = await api.matrix(path, currentScope, effectiveRoot); if (revision === readRevision.current) setMatrix(value); }
+      catch (e) { if (revision === readRevision.current) setClientError(String(e)); }
+    }
+    if (revision === readRevision.current) setLoading(false);
   }, [invalidatePlan]);
-  const catalogRevision = useRef(0);
-  const loadCatalog = useCallback(async (path: string) => {
-    const revision = ++catalogRevision.current;
-    try { const c = await api.loadCatalog(path); if (revision === catalogRevision.current) { setCatalog(c); setEntries((c.catalog?.entries ?? []) as Entry[]); } }
-    catch { if (revision === catalogRevision.current) { setCatalog(null); setEntries([]); } }
-  }, []);
   const loadBackups = useCallback(async () => {
-    try { setBackups(await api.backups()); } catch (e) { setBackups([]); setError(String(e)); }
+    const revision = ++backupRevision.current;
+    try { const value = await api.backups(); if (revision === backupRevision.current) setBackups(value); }
+    catch (e) { if (revision === backupRevision.current) { setBackups([]); setFeedback({ tone: "warn", text: `无法读取备份：${String(e)}` }); } }
   }, []);
   useEffect(() => {
     let active = true;
@@ -80,116 +111,126 @@ export default function App() {
     (async () => {
       try {
         const value = await api.loadSettings(); if (!active) return;
-        setSettings(value); setSettingsValid(true); setCatalogPath(value.catalogPath); setPathInput(value.catalogPath);
-        setScope(value.defaultScope); setMode(value.defaultMode); setProject(value.lastProjectDir); setProjectInput(value.lastProjectDir ?? "");
-        await Promise.all([refresh(value.catalogPath, value.defaultScope, value.lastProjectDir), loadCatalog(value.catalogPath), loadBackups()]);
+        setSettings(value); setSettingsValid(true); setCatalogPath(value.catalogPath); setScope(value.defaultScope);
+        setMode(value.defaultMode); setProject(value.lastProjectDir);
+        await Promise.all([refresh(value.catalogPath, value.defaultScope, value.lastProjectDir), loadBackups()]);
       } catch (e) {
         if (!active) return;
-        setError(String(e)); setLoading(false); setSettingsValid(false); setPage("settings");
-        try { const defaults = await api.defaultSettings(); if (active) setSettings(defaults); } catch { /* 保留原始错误 */ }
+        setFeedback({ tone: "danger", text: String(e) }); setLoading(false); setSettingsValid(false); setPage("settings"); setOverlay(null);
+        try { const defaults = await api.defaultSettings(); if (active) setSettings(defaults); } catch { /* 保留原始设置错误 */ }
       }
     })();
-    return () => { active = false; readRevision.current++; catalogRevision.current++; };
-  }, [refresh, loadCatalog, loadBackups]);
+    return () => { active = false; readRevision.current++; backupRevision.current++; };
+  }, [refresh, loadBackups]);
   useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => { if (dirty || applying) { event.preventDefault(); event.returnValue = ""; } };
+    const warn = (event: BeforeUnloadEvent) => { if (dirty || writing) { event.preventDefault(); event.returnValue = ""; } };
     window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty, applying]);
-  useEffect(() => { if (page === "backups" && settingsValid) loadBackups(); }, [page, settingsValid, loadBackups]);
+  }, [dirty, writing]);
+  useEffect(() => { if (page === "history" && settingsValid) loadBackups(); }, [page, settingsValid, loadBackups]);
 
-  function toggle(key: string) { invalidatePlan(); setSelected((prev) => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; }); }
+  function toggle(key: string) {
+    if (writing) return;
+    invalidatePlan(); setSelected((previous) => { const next = new Set(previous); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+  }
   function selectAllClient(id: string) {
-    if (!matrix) return; invalidatePlan();
-    const keys = matrix.rows.filter((r) => r.cells.some((c) => c.clientId === id && c.state !== "unsupported")).map((r) => `${r.name}::${id}`);
-    setSelected((prev) => { const next = new Set(prev); const all = keys.every((k) => next.has(k)); keys.forEach((k) => all ? next.delete(k) : next.add(k)); return next; });
-  }
-  async function makePlan() {
-    if (!contextReady || applying) return; invalidatePlan(); const revision = planRevision.current;
-    setLoading(true); setError(null);
-    const request: PlanInput = { catalogPath, selection: selectionFromCells(selected), scope, projectRoot, mode, allowCommentStrip: false };
-    try { const p = await api.plan(request); if (revision !== planRevision.current) return; setPlan(p); setPlanRequest(request); setPage("diff"); }
-    catch (e) { if (revision === planRevision.current) setError(String(e)); }
-    finally { setLoading(false); }
-  }
-  async function applyPlan() {
-    if (!planRequest || !plan?.writable || applying) return; setApplying(true); setError(null);
-    try {
-      const r = await api.apply(planRequest, false); setReceipt(r);
-      setToast(`已写入 ${r.written} 个文件${r.failed ? `，${r.failed} 项失败，请查看逐项结果和备份` : ""}`);
-      await refresh(catalogPath, scope, projectRoot); await loadBackups(); setPage("backups");
-    } catch (e) { setError(String(e)); } finally { setApplying(false); }
-  }
-  async function changeProject(path: string) {
-    if (!settings || !settingsValid || !canLeave()) return;
-    setChoosing(true); setError(null);
-    try {
-      // 先由后端验证目录再保存，非法输入不会替换上次有效目录。
-      await api.detect("project", path);
-      const next = { ...settings, lastProjectDir: path };
-      const warnings = await api.saveSettings(next);
-      setSettings(next); setProject(path); setProjectInput(path); setDirty(false);
-      if (warnings.length) setToast(warnings.join("；"));
-      await refresh(catalogPath, scope, path);
-    } catch (e) { setError(String(e)); } finally { setChoosing(false); }
-  }
-  async function chooseProject() {
-    setChoosing(true);
-    try { const path = await api.chooseDirectory(project); if (path) await changeProject(path); }
-    catch (e) { setError(String(e)); } finally { setChoosing(false); }
+    if (!matrix || writing) return; invalidatePlan();
+    const keys = matrix.rows.filter((row) => row.cells.some((cell) => cell.clientId === id && cell.state !== "unsupported")).map((row) => `${row.name}::${id}`);
+    setSelected((previous) => { const next = new Set(previous); const all = keys.every((key) => next.has(key)); keys.forEach((key) => all ? next.delete(key) : next.add(key)); return next; });
   }
   function changeScope(next: Scope) {
-    if (!canLeave()) return; setDirty(false); setScope(next); setToast(null); refresh(catalogPath, next, project);
+    if (contextLocked || !canLeave()) return;
+    setScope(next); setFeedback(null); refresh(catalogPath, next, project);
+    if (next === "project" && !project) setOverlay({ kind: "project" });
   }
-  async function useCatalog(create = false) {
-    if (!canLeave() || !pathInput.trim()) return;
+  function changeMode(next: MergeMode) { invalidatePlan(); setMode(next); }
+  async function makePlan() {
+    if (!contextReady || !selected.size || writing || planning) return;
+    invalidatePlan(); const revision = planRevision.current; const requestId = ++planningRequest.current;
+    setPlanning(true); setFeedback(null);
+    const request: PlanInput = { catalogPath, selection: selectionFromCells(selected), scope, projectRoot, mode, allowCommentStrip: false };
     try {
-      if (create) await api.createCatalog(pathInput.trim());
-      setDirty(false); setCatalogPath(pathInput.trim()); invalidatePlan();
-      await Promise.all([loadCatalog(pathInput.trim()), refresh(pathInput.trim(), scope, projectRoot)]);
-      if (create) setPage("catalog");
-    } catch (e) { setError(String(e)); }
+      const value = await api.plan(request); if (revision !== planRevision.current) return;
+      setPlan(value); setPlanRequest(request); setOverlay({ kind: "preview" });
+    } catch (e) { if (revision === planRevision.current) setFeedback({ tone: "danger", text: String(e) }); }
+    finally { if (requestId === planningRequest.current) setPlanning(false); }
   }
-  const busy = applying || choosing || !settingsValid;
-  const contextLocked = busy || dirty;
-  return <div className="shell"><aside className="sidebar"><div className="brand"><span className="brand-mark">M</span> MCP Hub<small>一份配置，连接你的 Agent</small></div>
-    <nav className="nav">{NAV.map((n) => <button key={n.id} disabled={applying} className={`nav-item${page === n.id ? " active" : ""}`} onClick={() => navigate(n.id)}><span>{n.icon}</span>{n.label}</button>)}</nav>
-    <div className="nav nav-secondary"><span className="nav-caption">配置工具</span>{([{ id: "catalog", label: "MCP配置" }, { id: "matrix", label: "客户端配置" }, { id: "diff", label: "差异预览" }] as const).map((n) => <button key={n.id} className={`nav-item${page === n.id ? " active" : ""}`} disabled={applying} onClick={() => navigate(n.id)}>{n.label}{n.id === "diff" && plan ? <span className="count">{plan.writable}</span> : null}</button>)}</div>
-    <div className="sidebar-footer">{info ? <>v{info.version} · {info.platform}<br />数据目录 {info.dataDir}</> : "正在读取环境…"}<p>所有写入都从预览开始</p></div></aside>
-    <main className="main"><div className="topbar"><div className="scope-control"><span className="label">配置范围</span><select aria-label="配置范围" className="select" disabled={contextLocked} value={scope} onChange={(e) => changeScope(e.target.value as Scope)}>
-      <option value="user">全局配置 · 当前用户跨项目</option><option value="project">项目配置 · 仅当前项目</option></select></div>
-      <span className="label">写入策略</span><select aria-label="写入策略" className="select" value={mode} disabled={contextLocked} onChange={(e) => { invalidatePlan(); setMode(e.target.value as MergeMode); }}><option value="merge">字段合并</option><option value="replace">整条替换</option></select>
-      <div className="spacer" />{isMock && <span className="pill warn">演示数据 · 不写入磁盘</span>}<button className="btn" disabled={contextLocked || loading || !contextReady} onClick={() => { if (canLeave()) { setDirty(false); refresh(catalogPath, scope, projectRoot); } }}>刷新</button></div>
-      {scope !== "user" && <div className="project-bar" aria-label="项目目录选择"><span className="label">项目目录</span><input aria-label="项目目录" className="input grow mono" value={projectInput} placeholder="选择或输入项目绝对目录" disabled={contextLocked} onChange={(e) => setProjectInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") changeProject(projectInput); }} />
-        <button className="btn" disabled={contextLocked} onClick={chooseProject}>{choosing ? "处理中…" : "选择目录…"}</button><button className="btn" disabled={contextLocked || !projectInput.trim()} onClick={() => changeProject(projectInput)}>使用此目录</button>{project && projectInput !== project && <span className="pill warn">目录尚未应用</span>}</div>}
-      <div className={page === "matrix" ? "content fixed" : page === "workbench" ? "content workbench-page" : "content"}>
-        {error && <Banner tone="danger"><div><b>需要处理</b><div className="mono">{error}</div></div></Banner>}
-        {toast && <Banner tone="ok">{toast}</Banner>}
-        {!contextReady && settingsValid && scope !== "user" && <Banner tone="warn">请先选择有效项目目录。项目配置不会使用软件的启动目录。</Banner>}
-        {page !== "settings" && <div className="catalog-bar"><span>配置库</span><input aria-label="当前配置库文件" className="input grow mono" value={pathInput} disabled={contextLocked} onChange={(e) => setPathInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") useCatalog(); }} />
-          <button className="btn small" disabled={contextLocked} onClick={() => useCatalog()}>加载</button>{!catalog && <button className="btn small" disabled={contextLocked} onClick={() => useCatalog(true)}>新建空配置库</button>}</div>}
-        {page === "workbench" && <Workbench matrix={matrix} entries={entries} clients={clients} selected={selected} onToggle={toggle} onPlan={makePlan} onEdit={() => navigate("catalog")} loading={loading || !contextReady} />}
-        {page === "matrix" && <MatrixPage matrix={matrix} selected={selected} onToggle={toggle} onSelectAllClient={selectAllClient} onPlan={makePlan} loading={loading || !contextReady} />}
-        {page === "catalog" && <CatalogPage entries={entries} issues={catalog?.issues ?? []} onDirty={setDirty} onSave={async (list) => {
-          if (!settingsValid) throw new Error("请先修复全局设置");
-          const warnings = await api.saveCatalog(catalogPath, { version: 1, entries: list }); setDirty(false);
-          await loadCatalog(catalogPath); await refresh(catalogPath, scope, projectRoot); return warnings;
+  async function applyPlan() {
+    if (!planRequest || !plan?.writable || writing) return;
+    setWriting(true); setFeedback(null);
+    try {
+      const value = await api.apply(planRequest, false); setReceipt(value);
+      setOverlay(null); await refresh(catalogPath, scope, projectRoot); await loadBackups(); setPage("history");
+      setFeedback({ tone: value.failed || value.blocked ? "warn" : "ok", text: `已写入 ${value.written} 个文件${value.failed ? `，${value.failed} 项失败，请检查逐项结果` : value.blocked ? `，${value.blocked} 项被阻止` : "；备份可在下方恢复"}` });
+    } catch (e) { setFeedback({ tone: "danger", text: String(e) }); }
+    finally { setWriting(false); }
+  }
+  async function saveEntries(list: Entry[]) {
+    if (!settingsValid || catalogState === "error") throw new Error("请先修复或切换配置库位置");
+    if (catalogState === "missing") await api.createCatalog(catalogPath);
+    const warnings = await api.saveCatalog(catalogPath, { version: 1, entries: list });
+    await refresh(catalogPath, scope, projectRoot); await loadBackups();
+    setDirty(false); setOverlay(null); setFeedback({ tone: warnings.length ? "warn" : "ok", text: warnings.length ? `配置库已保存；${warnings.join("；")}` : "已保存到 MCP 库，尚未修改任何 Agent。选择目标后可预览变更。" });
+  }
+  const currentTitle = NAV.find((item) => item.id === page)?.label ?? "软件设置";
+  const libraryTitle = catalogPath && fileName(catalogPath) !== "catalog.yaml" ? fileName(catalogPath) : "默认配置库";
+  return <div className="shell">
+    <aside className="sidebar"><div className="brand"><span className="brand-mark"><Icon name="library" size={22} /></span><div>MCP Hub<small>一份配置，连接多个 Agent</small></div></div>
+      <button className="library-switch" disabled={busy || dirty || !!overlay} onClick={() => openOverlay({ kind: "library" })} aria-label="管理配置库"><Icon name="folder" /><span><small>当前配置库</small><b>{libraryTitle}</b></span><Icon name="chevron" size={15} /></button>
+      <nav className="nav" aria-label="主导航">{NAV.map((item) => <button key={item.id} aria-label={item.label} disabled={writing} className={`nav-item${page === item.id ? " active" : ""}`} aria-current={page === item.id ? "page" : undefined} onClick={() => navigate(item.id)}><Icon name={item.icon} /><span>{item.label}<small>{item.hint}</small></span>{item.id === "library" && !!entries.length && <span className="count">{entries.length}</span>}</button>)}</nav>
+      <div className="sidebar-footer"><button aria-label="软件设置" className={`nav-item${page === "settings" ? " active" : ""}`} disabled={writing} onClick={() => navigate("settings")}><Icon name="settings" /><span>软件设置</span></button><div className="version-line"><span className="status-dot" />{info ? `v${info.version}` : "正在初始化…"}<span>本地配置工具</span></div></div>
+    </aside>
+    <main className="main"><header className="topbar"><span className="breadcrumb">工作空间<span>/</span><b>{currentTitle}</b></span><div className="spacer" />
+      {page !== "settings" && <div className="workspace-context"><label><span className="sr-only">配置范围</span><select aria-label="配置范围" className="select scope-select" disabled={contextLocked} value={scope} onChange={(event) => changeScope(event.target.value as Scope)}><option value="user">全局配置 · 当前用户</option><option value="project">项目配置 · 当前目录</option></select></label>
+        {scope === "project" && <button className={`btn project-button${!project ? " needs-project" : ""}`} aria-label="选择项目目录" disabled={contextLocked} onClick={() => openOverlay({ kind: "project" })}><Icon name="folder" size={16} />{project ? fileName(project) : "选择项目目录"}</button>}
+      </div>}
+      {isMock && <span className="pill warn">演示数据</span>}
+      <button className="btn ghost icon-button" aria-label="刷新配置与状态" title="刷新配置与状态" disabled={contextLocked || loading} onClick={() => refresh(catalogPath, scope, projectRoot)}><Icon name="refresh" /></button>
+    </header>
+    <div className={`content${page === "library" ? " library-content" : ""}`}>
+      {feedback && <div className="feedback-wrap" role="status" aria-live="polite"><Banner tone={feedback.tone}><span>{feedback.text}</span><button className="btn ghost icon-button small" aria-label="关闭提示" onClick={() => setFeedback(null)}><Icon name="close" size={15} /></button></Banner></div>}
+      {clientError && page !== "settings" && <Banner tone="warn"><span>当前范围的 Agent 状态未完整读取：{clientError}</span>{scope === "project" && <button className="text-button" disabled={contextLocked} onClick={() => openOverlay({ kind: "project" })}>检查项目目录</button>}</Banner>}
+      {!contextReady && settingsValid && scope === "project" && <Banner tone="info"><span>先选择项目目录，即可读取项目配置并选择分发目标。</span><button className="text-button" disabled={contextLocked} onClick={() => openOverlay({ kind: "project" })}>选择项目目录</button></Banner>}
+      {page === "library" && !!catalog?.issues.length && <Banner tone="warn"><div>{catalog.issues.map((issue) => <p key={issue}>{issue}</p>)}</div></Banner>}
+      {page === "library" && <LibraryPage entries={entries} matrix={matrix} clients={clients} scope={scope} selected={selected} focus={focus} onFocus={setFocus} onToggle={toggle}
+        onAdd={() => openEditor(null)} onEdit={openEditor} onImport={() => navigate("agents")} onManage={() => openOverlay({ kind: "library" })}
+        onPlan={makePlan} onMatrix={() => openOverlay({ kind: "matrix" })} onScopeChange={changeScope} mode={mode} onModeChange={changeMode}
+        loading={loading} planning={planning} blocked={busy || loading} missing={catalogState === "missing"} error={catalogError} onRetry={() => refresh(catalogPath, scope, projectRoot)} />}
+      {page === "agents" && <DetectPage key={`${scope}:${projectRoot}:${catalogPath}`} clients={clients} scope={scope} projectRoot={projectRoot} catalogPath={catalogPath}
+        loading={loading} contextReady={contextReady} busy={writing} onChooseProject={() => openOverlay({ kind: "project" })} onDirty={setDirty} onBusy={setWriting} onImported={async (value) => {
+          setDirty(false); invalidatePlan(); await refresh(catalogPath, scope, projectRoot); await loadBackups(); setPage("library"); setFocus(null);
+          setFeedback({ tone: value.warnings.length ? "warn" : "ok", text: `已导入 ${value.imported} 项到 MCP 库，源 Agent 文件未修改。${value.warnings.length ? value.warnings.join("；") : "下一步：选择配置并应用到目标 Agent。"}` });
         }} />}
-        {page === "diff" && <DiffPage plan={plan} applying={applying} onApply={applyPlan} />}
-        {page === "detect" && (contextReady ? <DetectPage key={`${scope}:${projectRoot}:${catalogPath}`} clients={clients} scope={scope} projectRoot={projectRoot}
-          catalogPath={catalogPath} onDirty={setDirty} onBusy={setApplying} onImported={async (result) => {
-            invalidatePlan(); setDirty(false);
-            await loadCatalog(catalogPath); await refresh(catalogPath, scope, projectRoot); await loadBackups();
-            setToast(`已导入 ${result.imported} 项到配置库；源 Agent 文件未修改${result.warnings.length ? `；${result.warnings.join("；")}` : ""}`);
-          }} /> : <p>选择项目目录后即可读取当前项目下的 Agent MCP。</p>)}
-        {page === "settings" && settings && <SettingsPage key={settingsValid ? "valid" : "recovery"} settings={settings} dataDir={info?.dataDir ?? "~/.mcp-hub"} onDirty={setDirty} onSave={async (next) => {
-          const warnings = await api.saveSettings(next); setSettings(next); setSettingsValid(true); setDirty(false); invalidatePlan();
-          setToast(warnings.length ? warnings.join("；") : "全局设置已保存"); setError(null);
-          if (!settingsValid) { setCatalogPath(next.catalogPath); setPathInput(next.catalogPath); setScope(next.defaultScope); setMode(next.defaultMode); setProject(next.lastProjectDir); setProjectInput(next.lastProjectDir ?? ""); await loadCatalog(next.catalogPath); await refresh(next.catalogPath, next.defaultScope, next.lastProjectDir); }
-          await loadBackups();
-        }} />}
-        {page === "backups" && <BackupsPage backups={backups} receipt={receipt} onRestore={async (id) => {
-          if (!window.confirm(`回滚将覆盖备份 ${id} 涉及文件的当前内容，确认继续？`)) return;
-          setApplying(true); try { const n = await api.restore(id); setToast(`已回滚 ${id}，恢复 ${n} 个文件`); await refresh(catalogPath, scope, projectRoot); await loadCatalog(catalogPath); await loadBackups(); } catch (e) { setError(String(e)); } finally { setApplying(false); }
-        }} />}
-      </div></main></div>;
+      {page === "history" && <BackupsPage backups={backups} receipt={receipt} onRestore={async (id) => {
+        if (!window.confirm(`恢复备份 ${id} 将覆盖涉及文件的当前内容。请先另存后续编辑，确认继续？`)) return;
+        setWriting(true); try { const restored = await api.restore(id); await refresh(catalogPath, scope, projectRoot); await loadBackups(); setReceipt(null); setFeedback({ tone: "ok", text: `已恢复 ${restored} 个文件，请在目标 Agent 中核对配置。` }); }
+        catch (e) { setFeedback({ tone: "danger", text: String(e) }); } finally { setWriting(false); }
+      }} />}
+      {page === "settings" && settings && <SettingsPage key={settingsValid ? "valid" : "recovery"} settings={settings} dataDir={info?.dataDir ?? "~/.mcp-hub"} onDirty={setDirty} onBusy={setWriting} onSave={async (value) => {
+        const warnings = await api.saveSettings(value); setSettings(value); setSettingsValid(true); setDirty(false); invalidatePlan();
+        if (!settingsValid) { setCatalogPath(value.catalogPath); setScope(value.defaultScope); setProject(value.lastProjectDir); setMode(value.defaultMode); await refresh(value.catalogPath, value.defaultScope, value.lastProjectDir); }
+        await loadBackups(); setFeedback({ tone: warnings.length ? "warn" : "ok", text: warnings.length ? warnings.join("；") : "软件设置已保存，当前工作范围保持不变。" });
+      }} />}
+    </div></main>
+    {overlay && <Dialog key={overlay.kind} title={overlay.kind === "editor" ? overlay.entry ? `编辑 ${overlay.entry.name}` : "添加 MCP" : overlay.kind === "library" ? "管理配置库" : overlay.kind === "project" ? "选择项目目录" : overlay.kind === "matrix" ? "批量选择" : "预览变更"}
+      wide={overlay.kind === "matrix" || overlay.kind === "preview"} busy={writing} onClose={closeOverlay}>
+      {overlay.kind === "editor" && <EntryEditor entry={overlay.entry} entries={entries} onDirty={setDirty} onBusy={setWriting} onClose={closeOverlay}
+        onSave={async (next) => { const list = editingEntry ? entries.map((item) => item.name === editingEntry.name ? next : item) : [...entries, next]; await saveEntries(list); setFocus(next.name); }}
+        onRemove={editingEntry ? async () => { await saveEntries(entries.filter((item) => item.name !== editingEntry.name)); setFocus(null); } : null} />}
+      {overlay.kind === "library" && <LocationForm kind="library" initial={catalogPath} onClose={closeOverlay} onBusy={setWriting} onUse={async (path, remember) => {
+        await api.loadCatalog(path);
+        let warnings: string[] = [];
+        if (remember && settings) { const next = { ...settings, catalogPath: path }; warnings = await api.saveSettings(next); setSettings(next); }
+        setCatalogPath(path); setFocus(null); await refresh(path, scope, projectRoot); setOverlay(null);
+        setFeedback({ tone: warnings.length ? "warn" : "ok", text: warnings.length ? warnings.join("；") : "已切换配置库，Agent 文件保持不变。" });
+      }} />}
+      {overlay.kind === "project" && <LocationForm kind="project" initial={project ?? ""} onClose={closeOverlay} onBusy={setWriting} onUse={async (path) => {
+        if (!settings) throw new Error("软件设置尚未加载");
+        await api.detect("project", path); const next = { ...settings, lastProjectDir: path }; const warnings = await api.saveSettings(next);
+        setSettings(next); setProject(path); await refresh(catalogPath, scope, path); setOverlay(null);
+        setFeedback({ tone: warnings.length ? "warn" : "ok", text: warnings.length ? warnings.join("；") : "项目目录已更新，请为当前项目选择分发目标。" });
+      }} />}
+      {overlay.kind === "matrix" && <><p className="dialog-intro">高级批量工具。每个单元格表示一组 MCP 与 Agent，未勾选的条目保持不变。</p><MatrixPage matrix={matrix} selected={selected} onToggle={toggle} onSelectAllClient={selectAllClient} onPlan={makePlan} loading={planning || !contextReady} /></>}
+      {overlay.kind === "preview" && <DiffPage plan={plan} applying={writing} onApply={applyPlan} onBack={closeOverlay} mode={mode} onModeChange={changeMode} onReplan={makePlan} planning={planning} />}
+    </Dialog>}
+  </div>;
 }
