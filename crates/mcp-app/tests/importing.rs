@@ -700,3 +700,60 @@ fn destination_symlink_to_source_is_rejected() {
         .scan(&app, &target, "claude-code", Scope::User)
         .is_err());
 }
+
+#[test]
+fn other_agents_empty_or_missing_config_paths_are_never_used_as_catalogs() {
+    let (mut app, _) = fixture(Platform::current());
+    let project = app.env.home.join("project");
+    fs::create_dir_all(&project).unwrap();
+    app.env.project_root = Some(project);
+    source(
+        &app,
+        adapters::by_id("codex").unwrap(),
+        Scope::User,
+        &[("alpha", json!({"command":"python"}))],
+    );
+    let mut sessions = ImportSessions::default();
+    for scope in [Scope::User, Scope::Project] {
+        let other = app
+            .target_path(adapters::by_id("claude-code").unwrap(), scope)
+            .unwrap();
+        assert!(sessions.scan(&app, &other, "codex", Scope::User).is_err());
+        assert!(!other.exists());
+        write(&other, "{}");
+        assert!(sessions.scan(&app, &other, "codex", Scope::User).is_err());
+        assert_eq!(fs::read_to_string(other).unwrap(), "{}");
+    }
+}
+
+#[test]
+fn null_and_non_object_json_entries_are_blocked_without_losing_good_items() {
+    let (app, target) = fixture(Platform::current());
+    let path = app
+        .target_path(adapters::by_id("claude-code").unwrap(), Scope::User)
+        .unwrap();
+    write(
+        &path,
+        r#"{"mcpServers":{"bad-null":{"url":null},"bad-object":42,"good":{"command":"python"}}}"#,
+    );
+    let mut sessions = ImportSessions::default();
+    let scan = sessions
+        .scan(&app, &target, "claude-code", Scope::User)
+        .unwrap();
+    assert!(
+        scan.items
+            .iter()
+            .filter(|item| item.blocked.is_some())
+            .count()
+            == 2
+    );
+    let preview = sessions
+        .preview(
+            &app,
+            &scan.scan_id,
+            &[choice(&scan, "good", ImportAction::Add, "good")],
+        )
+        .unwrap();
+    assert_eq!(preview.changes.len(), 1);
+    assert!(!target.exists());
+}

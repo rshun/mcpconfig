@@ -150,6 +150,17 @@ impl ImportSessions {
             .ok_or_else(|| fail("无法定位来源配置，请先选择项目目录"))?;
         let source_key = mcp_io::file_key(&source)?;
         let target_key = mcp_io::file_key(target)?;
+        // 即使另一 Agent 的文件为空或尚不存在，也不能将其当作配置库覆盖。
+        for client in adapters::all() {
+            for scope in [Scope::User, Scope::Project, Scope::Local] {
+                let candidates = adapters::paths::candidates(client.id(), scope, app.platform);
+                for path in app.env.expand_all(&candidates, app.platform) {
+                    if mcp_io::file_key(&path)? == target_key {
+                        return Err(fail("配置库不能使用任何已知 Agent 的配置路径"));
+                    }
+                }
+            }
+        }
         if source_key == target_key
             || target_key == mcp_io::file_key(&app.settings_path())?
             || target_key == mcp_io::file_key(&app.engine.audit_path())?
