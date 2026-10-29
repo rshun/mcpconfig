@@ -11,6 +11,7 @@ import type {
   ReceiptDto,
   Scope,
   GuiSettings,
+  ImportChoice, ImportPreview, ImportResult, ImportScan,
 } from "./types";
 import { mockCall, mockMode } from "./mock";
 
@@ -35,6 +36,13 @@ export const api = {
   saveSettings: (settings: GuiSettings) => call<string[]>("save_settings", { settings }),
   chooseDirectory: (initial: string | null) => call<string | null>("choose_directory", { initial }),
   createCatalog: (path: string) => call<string[]>("create_catalog", { path }),
+  scanImport: (catalogPath: string, clientId: string, scope: Scope, projectRoot: string | null) =>
+    call<ImportScan>("scan_import", { catalogPath, clientId, scope, projectRoot }),
+  previewImport: (scanId: string, choices: ImportChoice[], scope: Scope, projectRoot: string | null) =>
+    call<ImportPreview>("preview_import", { scanId, choices, scope, projectRoot }),
+  commitImport: (previewId: string, scope: Scope, projectRoot: string | null) =>
+    call<ImportResult>("commit_import", { previewId, scope, projectRoot }),
+  cancelImport: (scanId: string) => call<void>("cancel_import", { scanId }),
   detect: (scope: Scope, projectRoot: string | null = null) => call<ClientDto[]>("detect", { scope, projectRoot }),
   readClientConfig: (clientId: string, scope: Scope, projectRoot: string | null = null) =>
     call<ExistingConfigDto>("read_client_config", { clientId, scope, projectRoot }),

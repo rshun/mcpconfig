@@ -22,6 +22,25 @@ fn fixture() -> (PathBuf, Engine) {
     (root, engine)
 }
 
+#[test]
+fn catalog_import_baseline_rejects_external_changes_before_backup() {
+    for existed in [false, true] {
+        let (root, engine) = fixture();
+        let target = root.join("catalog.yaml");
+        let before = "version: 1\nentries: []\n";
+        if existed {
+            fs::write(&target, before).unwrap();
+        }
+        let external = "version: 1\nentries: [{name: external, transport: stdio, command: node}]\n";
+        fs::write(&target, external).unwrap();
+        assert!(engine
+            .save_catalog_if_unchanged(&target, before, existed.then_some(before))
+            .is_err());
+        assert_eq!(fs::read_to_string(target).unwrap(), external);
+        assert!(!engine.home().exists(), "基线不匹配时不能创建备份或审计");
+    }
+}
+
 fn plan(path: &std::path::Path, original: Option<&str>) -> mcp_core::plan::FilePlan {
     plan_file(
         adapters::by_id("claude-code").unwrap(),

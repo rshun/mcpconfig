@@ -7,6 +7,7 @@
 
 pub mod detect;
 pub mod env;
+pub mod importing;
 pub mod inspect;
 mod planning;
 pub mod settings;
@@ -203,6 +204,15 @@ impl App {
     }
 
     pub fn save_catalog(&self, path: &Path, cat: &Catalog) -> Result<Vec<String>, AppError> {
+        self.save_catalog_checked(path, cat, None)
+    }
+
+    pub(crate) fn save_catalog_checked(
+        &self,
+        path: &Path,
+        cat: &Catalog,
+        expected: Option<Option<&str>>,
+    ) -> Result<Vec<String>, AppError> {
         let issues = catalog::validate(cat);
         if issues.iter().any(|issue| issue.is_error()) {
             return Err(AppError::Other("清单校验失败，请检查条目字段".into()));
@@ -217,7 +227,12 @@ impl App {
         } else {
             catalog::to_yaml(cat)?
         };
-        let receipt = self.engine.save_catalog(path, &content)?;
+        let receipt = match expected {
+            Some(before) => self
+                .engine
+                .save_catalog_if_unchanged(path, &content, before)?,
+            None => self.engine.save_catalog(path, &content)?,
+        };
         if let Some(outcome) = receipt.outcomes.iter().find(|o| {
             matches!(
                 o.status,

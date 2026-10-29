@@ -6,9 +6,12 @@
  *
  * 打开 mock：URL 加 `?mock=1`
  */
-import type { GuiSettings, McpSelection, PlanDto, Scope } from "./types";
+import type { GuiSettings, ImportChoice, ImportPreview, ImportScan, McpSelection, PlanDto, Scope } from "./types";
 
 let settings: GuiSettings = { version: 1, catalogPath: "C:/Users/Demo/.mcp-hub/catalog.yaml", backupDir: "C:/Users/Demo/.mcp-hub/backups", defaultScope: "user", defaultMode: "merge", lastProjectDir: null };
+let importSerial = 0;
+const importScans = new Map<string, ImportScan>();
+const importPreviews = new Map<string, ImportPreview & { scope: Scope; scanId: string }>();
 
 const params =
   typeof window !== "undefined"
@@ -72,6 +75,7 @@ interface MockEntry {
   args?: string[];
   url?: string;
   tokenEnv?: string;
+  env?: Record<string, string>;
   desc: string;
 }
 
@@ -255,6 +259,45 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
     case "save_settings": settings = structuredClone(args?.settings as GuiSettings); return [] as T;
     case "choose_directory": return "C:/Dev/demo-project" as T;
     case "create_catalog": return [] as T;
+    case "scan_import": {
+      const scan: ImportScan = { scanId: `demo-scan-${++importSerial}`, sourcePath: `~/${args?.clientId}/mcp.json`, catalogPath: String(args?.catalogPath), catalogExists: true,
+        items: [{ name: "example-mcp", transport: "stdio", conflict: ENTRIES.some((entry) => entry.name === "example-mcp"), blocked: null,
+          fields: [{ id: "/args/0", label: "参数 1" }, { id: "/env/API_KEY", label: "env.API_KEY" }] }] };
+      importScans.set(scan.scanId, scan); return scan as T;
+    }
+    case "cancel_import": {
+      importScans.delete(String(args?.scanId));
+      for (const [id, preview] of importPreviews) if (preview.scanId === args?.scanId) importPreviews.delete(id);
+      return undefined as T;
+    }
+    case "preview_import": {
+      const scan = importScans.get(String(args?.scanId)); if (!scan) throw new Error("导入草稿已失效");
+      for (const [id, preview] of importPreviews) if (preview.scanId === scan.scanId) importPreviews.delete(id);
+      const choices = (args?.choices as ImportChoice[]).filter((choice) => choice.action !== "skip");
+      if (!choices.length) throw new Error("尚未选择可导入的条目");
+      const changes = choices.map((choice) => {
+        const item = scan.items.find((item) => item.name === choice.sourceName);
+        if (!item || !choice.targetName.trim() || item.fields.some((field) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(choice.bindings[field.id] ?? ""))) throw new Error("请完整填写环境变量映射");
+        const exists = ENTRIES.some((entry) => entry.name === choice.targetName);
+        if (choice.action === "replace" ? !exists : exists) throw new Error("目标名称冲突，请重新处理");
+        return { sourceName: choice.sourceName, targetName: choice.targetName, action: choice.action,
+          before: choice.action === "replace" ? { command: "[已隐藏]" } : null,
+          after: { name: choice.targetName, transport: "stdio", command: "python", args: [`\${ENV:${choice.bindings['/args/0']}}`], env: { API_KEY: `\${ENV:${choice.bindings['/env/API_KEY']}}` }, scope } };
+      });
+      const preview = { previewId: `demo-preview-${++importSerial}`, scanId: scan.scanId, scope, catalogPath: scan.catalogPath, changes };
+      importPreviews.set(preview.previewId, preview); return preview as T;
+    }
+    case "commit_import": {
+      const preview = importPreviews.get(String(args?.previewId)); if (!preview) throw new Error("预览已失效");
+      importPreviews.delete(preview.previewId); importScans.delete(preview.scanId);
+      for (const change of preview.changes) {
+        const index = ENTRIES.findIndex((entry) => entry.name === change.targetName);
+        if (index >= 0) ENTRIES.splice(index, 1);
+        const entry = change.after as { name: string; command: string; args: string[]; env: Record<string, string> };
+        ENTRIES.push({ ...entry, transport: "stdio", scope: preview.scope, desc: "从 Agent 导入" });
+      }
+      return { imported: preview.changes.length, warnings: [] } as T;
+    }
     case "app_info":
       return {
         version: "0.2.0",

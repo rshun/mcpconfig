@@ -121,7 +121,27 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
             })),
             };
           }
-          case "load_catalog": return { catalog: { version: 1, entries: ["alpha", "beta"].map((name) => ({name, transport: "stdio", command: "python"})) }, issues: [], entryCount: 2 };
+          case "load_catalog": return { catalog: { version: 1, entries: ["alpha", "beta"].map((name) => ({name, transport: "stdio", command: "python"})).concat(window.importedEntries || []) }, issues: [], entryCount: 2 };
+          case "scan_import": return { scanId: `scan-${window.testCalls.length}`, sourcePath: "C:/test/source/config.toml", catalogPath: args.catalogPath, catalogExists: true,
+            items: [
+              { name: "alpha", conflict: true, blocked: null, transport: "http", fields: [{ id: "/auth/token_env", label: "Bearer 凭据" }] },
+              { name: "new-mcp", conflict: false, blocked: null, transport: "stdio", fields: [{ id: "/args/0", label: "参数 1" }] },
+              { name: "unsupported", conflict: false, blocked: "包含无法无损转换的字段", transport: null, fields: [] },
+            ] };
+          case "preview_import": {
+            if (window.failImportPreview) throw new Error("目标配置库已变化，请重新扫描");
+            window.importPreview = { previewId: `preview-${window.testCalls.length}`, catalogPath: "C:/test/catalog.yaml",
+              changes: args.choices.filter((choice) => choice.action !== "skip").map((choice) => ({ sourceName: choice.sourceName, targetName: choice.targetName, action: choice.action,
+                before: choice.action === "replace" ? { command: "[已隐藏]", args: ["[已隐藏]"] } : null,
+                after: { name: choice.targetName, transport: "stdio", command: "python", args: Object.values(choice.bindings).map((name) => `\${ENV:${name}}`) },
+              })) };
+            return window.importPreview;
+          }
+          case "commit_import":
+            if (window.staleImport) throw new Error("源配置已变化，请重新扫描并预览");
+            window.importedEntries = window.importPreview.changes.map((change) => change.after);
+            return { imported: window.importedEntries.length, warnings: ["配置库已保存，审计写入失败（测试）"] };
+          case "cancel_import": return null;
           case "backups": return [];
           case "plan": {
             if (window.delayPlan) await new Promise((resolve) => { window.releasePlan = resolve; });
@@ -321,4 +341,61 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
   assert.equal(await evaluate("document.querySelector('.work-targets').scrollHeight > document.querySelector('.work-targets').clientHeight"), true);
   assert.equal(await evaluate("document.querySelector('.bottombar').getBoundingClientRect().bottom <= innerHeight"), true, "完整目标列表不能挤出预览操作");
   await screenshot("workbench-fourteen-agents");
+
+  // 导入只发送选择、冲突策略和变量名；未确认、取消和陈旧预览均不保存。
+  const setField = (label, value) => evaluate(`(() => {
+    const element = document.querySelector(${JSON.stringify(`[aria-label="${label}"]`)});
+    if (!element || element.disabled) throw new Error('字段不可编辑');
+    const prototype = element.tagName === 'SELECT' ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, 'value').set.call(element, ${JSON.stringify(value)});
+    element.dispatchEvent(new Event(element.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }));
+  })()`);
+  const checkbox = (label) => evaluate(`document.querySelector(${JSON.stringify(`[aria-label="${label}"]`)}).click()`);
+  const importReady = () => until(() => evaluate("!!document.querySelector('[aria-label=\"选择导入 alpha\"]')"), "导入扫描");
+  const importPreviewReady = () => until(() => evaluate("!!document.querySelector('[aria-label=\"导入差异预览\"]')"), "导入预览");
+  const committedBefore = await evaluate("window.testCalls.filter((call) => call.command === 'commit_import').length");
+  await button("Agent"); await readClient(1);
+  await until(() => evaluate("!!document.querySelector('[aria-label=\"已有 MCP 配置\"]')"), "导入来源");
+  await button("导入配置库…"); await importReady();
+  assert.equal(await evaluate("document.querySelector('[aria-label=\"选择导入 unsupported\"]').disabled"), true);
+  assert.equal(await evaluate("document.querySelector('[aria-label=\"配置范围\"]').disabled"), true);
+  await button("取消导入");
+  await until(() => evaluate("!document.querySelector('[aria-label=\"从 Agent 导入配置库\"]')"), "取消导入");
+  assert.equal(await evaluate("window.testCalls.filter((call) => call.command === 'commit_import').length"), committedBefore);
+
+  await button("导入配置库…"); await importReady();
+  await checkbox("选择导入 alpha");
+  assert.equal(await evaluate("document.querySelector('[aria-label=\"处理方式 alpha\"]').value"), "skip");
+  await setField("处理方式 alpha", "rename");
+  await setField("目标名称 alpha", "alpha-imported");
+  await setField("环境变量 alpha /auth/token_env", "API_KEY");
+  await button("预览导入"); await importPreviewReady();
+  let importArgs = await evaluate("window.testCalls.filter((call) => call.command === 'preview_import').at(-1).args");
+  assert.deepEqual(importArgs.choices, [{ sourceName: "alpha", action: "rename", targetName: "alpha-imported", bindings: { "/auth/token_env": "API_KEY" } }]);
+  assert.equal(importArgs.projectRoot, "C:/test/中文项目");
+  await setField("目标名称 alpha", "alpha-changed");
+  await until(() => evaluate("!document.querySelector('[aria-label=\"导入差异预览\"]')"), "编辑后导入预览失效");
+  await setField("处理方式 alpha", "replace");
+  await button("预览导入"); await importPreviewReady();
+  assert.equal(await evaluate("[...document.querySelectorAll('button')].find((button) => button.textContent === '确认导入配置库').disabled"), true);
+  await evaluate("document.querySelector('.import-preview input[type=checkbox]').click(); window.staleImport = true");
+  await button("确认导入配置库");
+  await until(() => evaluate("document.body.textContent.includes('源配置已变化，请重新扫描并预览')"), "陈旧导入被阻止");
+  assert.equal(await evaluate("!!document.querySelector('[aria-label=\"导入差异预览\"]')"), false);
+  await button("取消导入"); await evaluate("window.staleImport = false");
+
+  await button("导入配置库…"); await importReady();
+  await checkbox("选择导入 alpha"); await setField("处理方式 alpha", "rename");
+  await setField("目标名称 alpha", "alpha-imported"); await setField("环境变量 alpha /auth/token_env", "API_KEY");
+  await checkbox("选择导入 new-mcp"); await setField("环境变量 new-mcp /args/0", "MCP_ARGUMENT");
+  await button("预览导入"); await importPreviewReady();
+  await screenshot("agent-import-preview");
+  await button("确认导入配置库");
+  await until(() => evaluate("document.body.textContent.includes('已导入 2 项到配置库；源 Agent 文件未修改')"), "导入完成");
+  assert.equal(await evaluate("document.body.textContent.includes('配置库已保存，审计写入失败（测试）')"), true);
+  const committed = await evaluate("window.testCalls.filter((call) => call.command === 'commit_import').at(-1).args");
+  assert.deepEqual(Object.keys(committed).sort(), ["previewId", "projectRoot", "scope"]);
+  await button("MCP配置");
+  await until(() => evaluate("[...document.querySelectorAll('.list-item')].some((item) => item.textContent.includes('alpha-imported'))"), "导入后重新加载配置库");
+  assert.equal(await evaluate("window.testCalls.some((call) => ['save_catalog','restore'].includes(call.command))"), false);
 });

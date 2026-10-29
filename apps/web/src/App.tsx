@@ -175,7 +175,12 @@ export default function App() {
           await loadCatalog(catalogPath); await refresh(catalogPath, scope, projectRoot); return warnings;
         }} />}
         {page === "diff" && <DiffPage plan={plan} applying={applying} onApply={applyPlan} />}
-        {page === "detect" && (contextReady ? <DetectPage key={`${scope}:${projectRoot}`} clients={clients} scope={scope} projectRoot={projectRoot} /> : <p>选择项目目录后即可读取当前项目下的 Agent MCP。</p>)}
+        {page === "detect" && (contextReady ? <DetectPage key={`${scope}:${projectRoot}:${catalogPath}`} clients={clients} scope={scope} projectRoot={projectRoot}
+          catalogPath={catalogPath} onDirty={setDirty} onBusy={setApplying} onImported={async (result) => {
+            invalidatePlan(); setDirty(false);
+            await loadCatalog(catalogPath); await refresh(catalogPath, scope, projectRoot); await loadBackups();
+            setToast(`已导入 ${result.imported} 项到配置库；源 Agent 文件未修改${result.warnings.length ? `；${result.warnings.join("；")}` : ""}`);
+          }} /> : <p>选择项目目录后即可读取当前项目下的 Agent MCP。</p>)}
         {page === "settings" && settings && <SettingsPage key={settingsValid ? "valid" : "recovery"} settings={settings} dataDir={info?.dataDir ?? "~/.mcp-hub"} onDirty={setDirty} onSave={async (next) => {
           const warnings = await api.saveSettings(next); setSettings(next); setSettingsValid(true); setDirty(false); invalidatePlan();
           setToast(warnings.length ? warnings.join("；") : "全局设置已保存"); setError(null);

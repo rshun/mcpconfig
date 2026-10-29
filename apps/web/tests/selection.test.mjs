@@ -127,3 +127,32 @@ test("项目目录完整传入检测、矩阵和只读查看，设置独立保�
   await api.saveSettings(settings);
   assert.deepEqual(calls.at(-1), { command: "save_settings", args: { settings } });
 });
+
+test("导入 IPC 保留上下文、冲突策略和映射，确认只发送后端预览 ID", async () => {
+  calls.length = 0;
+  const choices = [{ sourceName: "same", action: "rename", targetName: "same-copy", bindings: { "/auth/token_env": "SERVICE_AUTH" } }];
+  await api.scanImport("C:/test/catalog.yaml", "codex", "project", "C:/test/project");
+  await api.previewImport("scan-id", choices, "project", "C:/test/project");
+  await api.commitImport("preview-id", "project", "C:/test/project");
+  await api.cancelImport("scan-id");
+  assert.deepEqual(calls, [
+    { command: "scan_import", args: { catalogPath: "C:/test/catalog.yaml", clientId: "codex", scope: "project", projectRoot: "C:/test/project" } },
+    { command: "preview_import", args: { scanId: "scan-id", choices, scope: "project", projectRoot: "C:/test/project" } },
+    { command: "commit_import", args: { previewId: "preview-id", scope: "project", projectRoot: "C:/test/project" } },
+    { command: "cancel_import", args: { scanId: "scan-id" } },
+  ]);
+});
+
+test("演示导入需要完整变量映射，取消和重复确认均被阻止", async () => {
+  const scan = await mockCall("scan_import", { catalogPath: "C:/demo/catalog.yaml", clientId: "codex", scope: "user" });
+  const choice = { sourceName: "example-mcp", action: "add", targetName: "example-mcp", bindings: {} };
+  await assert.rejects(mockCall("preview_import", { scanId: scan.scanId, choices: [choice] }));
+  choice.bindings = { "/args/0": "MCP_ARG", "/env/API_KEY": "MCP_KEY" };
+  const preview = await mockCall("preview_import", { scanId: scan.scanId, choices: [choice], scope: "user" });
+  const result = await mockCall("commit_import", { previewId: preview.previewId });
+  assert.equal(result.imported, 1);
+  await assert.rejects(mockCall("commit_import", { previewId: preview.previewId }));
+  const cancelled = await mockCall("scan_import", { catalogPath: "C:/demo/catalog.yaml", clientId: "codex", scope: "user" });
+  await mockCall("cancel_import", { scanId: cancelled.scanId });
+  await assert.rejects(mockCall("preview_import", { scanId: cancelled.scanId, choices: [choice] }));
+});

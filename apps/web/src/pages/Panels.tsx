@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { BackupDto, ClientDto, ExistingConfigDto, ReceiptDto, Scope } from "../types";
+import type { BackupDto, ClientDto, ExistingConfigDto, ImportResult, ReceiptDto, Scope } from "../types";
 import { Banner, Empty, Pill } from "../components/ui";
+import { ImportPanel } from "./Import";
 
 const STATE_TONE: Record<string, "ok" | "warn" | "info" | "danger" | "plain"> = {
   ready: "ok",
@@ -10,16 +11,21 @@ const STATE_TONE: Record<string, "ok" | "warn" | "info" | "danger" | "plain"> = 
   missing: "plain",
 };
 
-export function DetectPage({ clients, scope, projectRoot = null }: { clients: ClientDto[] | null; scope: Scope; projectRoot?: string | null }) {
+export function DetectPage({ clients, scope, projectRoot = null, catalogPath, onDirty, onBusy, onImported }: {
+  clients: ClientDto[] | null; scope: Scope; projectRoot?: string | null; catalogPath: string;
+  onDirty: (dirty: boolean) => void; onBusy: (busy: boolean) => void; onImported: (result: ImportResult) => Promise<void>;
+}) {
   const [config, setConfig] = useState<ExistingConfigDto | null>(null);
   const [reading, setReading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importClient, setImportClient] = useState<string | null>(null);
   const revision = useRef(0);
   useEffect(() => {
     revision.current += 1;
     setConfig(null);
     setReading(null);
     setError(null);
+    setImportClient(null);
     return () => { revision.current += 1; };
   }, [clients, scope, projectRoot]);
 
@@ -88,7 +94,7 @@ export function DetectPage({ clients, scope, projectRoot = null }: { clients: Cl
                   {c.path ?? "—"}
                 </td>
                 <td>
-                  <button className="btn small" disabled={!!c.scopeBlock}
+                  <button className="btn small" disabled={!!c.scopeBlock || importClient !== null}
                     title={c.scopeBlock ?? `查看 ${c.name} 的已有 MCP`}
                     onClick={() => readConfig(c.id)}>
                     {reading === c.id ? "读取中…" : "查看 MCP"}
@@ -106,6 +112,9 @@ export function DetectPage({ clients, scope, projectRoot = null }: { clients: Cl
           <div className="panel-head">
             <b>{config.clientName} · 已有 MCP（{config.entries.length}）</b>
             <span className="pill">{config.format}</span>
+            <div className="spacer" />
+            <button className="btn small primary" disabled={!!importClient || !catalogPath || !config.existed || !config.entries.length}
+              onClick={() => setImportClient(config.clientId)}>导入配置库…</button>
           </div>
           <div className="panel-body">
             <div className="mono" style={{ overflowWrap: "anywhere", marginBottom: 12 }}>{config.path}</div>
@@ -123,6 +132,9 @@ export function DetectPage({ clients, scope, projectRoot = null }: { clients: Cl
           </div>
         </section>
       )}
+
+      {importClient && <ImportPanel clientId={importClient} catalogPath={catalogPath} scope={scope} projectRoot={projectRoot}
+        onClose={() => setImportClient(null)} onDirty={onDirty} onBusy={onBusy} onImported={onImported} />}
 
       <Banner>
         未安装的客户端也允许写入（为 Bundle 分发与新机器预配置留路）。检测只回答「谁、在哪」，

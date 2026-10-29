@@ -54,6 +54,26 @@ export interface ExistingConfigDto {
   existed: boolean;
   entries: { name: string; config: Record<string, unknown> }[];
 }
+export type ImportAction = "skip" | "add" | "rename" | "replace";
+export interface ImportChoice {
+  sourceName: string;
+  action: ImportAction;
+  targetName: string;
+  bindings: Record<string, string>;
+}
+export interface ImportScan {
+  scanId: string;
+  sourcePath: string;
+  catalogPath: string;
+  catalogExists: boolean;
+  items: { name: string; transport: string | null; conflict: boolean; blocked: string | null; fields: { id: string; label: string }[] }[];
+}
+export interface ImportPreview {
+  previewId: string;
+  catalogPath: string;
+  changes: { sourceName: string; targetName: string; action: ImportAction; before: unknown | null; after: unknown }[];
+}
+export interface ImportResult { imported: number; warnings: string[] }
 export interface RowDto {
   name: string;
   transport: string;

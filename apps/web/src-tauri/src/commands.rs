@@ -6,6 +6,7 @@ use crate::dto::{
     AppInfoDto, BackupDto, CatalogDto, ClientDto, ExistingConfigDto, FileDto, MatrixDto, PlanDto,
     ReceiptDto, SkippedDto,
 };
+use mcp_app::importing::{ImportChoice, ImportPreview, ImportResult, ImportScan, ImportSessions};
 use mcp_app::settings::GuiSettings;
 use mcp_app::{App, PlanRequest};
 use mcp_core::model::Scope;
@@ -14,6 +15,65 @@ use std::collections::BTreeMap;
 
 fn app() -> App {
     App::from_process(None)
+}
+
+type Imports<'a> = tauri::State<'a, std::sync::Mutex<ImportSessions>>;
+
+#[tauri::command]
+pub fn scan_import(
+    catalog_path: String,
+    client_id: String,
+    scope: String,
+    project_root: Option<String>,
+    imports: Imports<'_>,
+) -> Result<ImportScan, String> {
+    let scope = parse_scope(&scope)?;
+    let app = context(scope, project_root)?;
+    imports
+        .lock()
+        .map_err(|_| "导入状态不可用，请重启软件".to_string())?
+        .scan(&app, std::path::Path::new(&catalog_path), &client_id, scope)
+        .map_err(err)
+}
+
+#[tauri::command]
+pub fn preview_import(
+    scan_id: String,
+    choices: Vec<ImportChoice>,
+    scope: String,
+    project_root: Option<String>,
+    imports: Imports<'_>,
+) -> Result<ImportPreview, String> {
+    let app = context(parse_scope(&scope)?, project_root)?;
+    imports
+        .lock()
+        .map_err(|_| "导入状态不可用，请重启软件".to_string())?
+        .preview(&app, &scan_id, &choices)
+        .map_err(err)
+}
+
+#[tauri::command]
+pub fn commit_import(
+    preview_id: String,
+    scope: String,
+    project_root: Option<String>,
+    imports: Imports<'_>,
+) -> Result<ImportResult, String> {
+    let app = context(parse_scope(&scope)?, project_root)?;
+    imports
+        .lock()
+        .map_err(|_| "导入状态不可用，请重启软件".to_string())?
+        .commit(&app, &preview_id)
+        .map_err(err)
+}
+
+#[tauri::command]
+pub fn cancel_import(scan_id: String, imports: Imports<'_>) -> Result<(), String> {
+    imports
+        .lock()
+        .map_err(|_| "导入状态不可用，请重启软件".to_string())?
+        .cancel(&scan_id);
+    Ok(())
 }
 
 fn context(scope: Scope, project_root: Option<String>) -> Result<App, String> {

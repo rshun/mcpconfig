@@ -768,6 +768,19 @@ h2 { font-size: 23px; margin: 12px 0 6px; }
 .path-picker { display: flex; gap: 10px; }
 .input.grow { min-width: 120px; }
 textarea.input { min-height: 88px; resize: vertical; width: 100%; font-family: var(--mono); }
+.import-panel { margin: 20px 0; }
+.import-fields { border: 0; padding: 0; margin: 18px 0; min-width: 0; }
+.import-item { border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin: 12px 0; }
+.import-item-head, .import-options { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.import-item-head { justify-content: space-between; }
+.import-item input[type=checkbox], .import-preview input[type=checkbox] { accent-color: var(--accent); }
+.import-options { margin-top: 14px; }
+.import-mapping { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(220px, 2fr); align-items: center; gap: 15px; margin-top: 14px; }
+.import-mapping span { overflow-wrap: anywhere; }
+.import-mapping small { display: block; font-size: 10px; }
+.import-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f6f9fa; padding: 15px; border: 1px solid var(--line); border-radius: 8px; }
+.import-preview h4 { color: var(--text-2); font-weight: 500; margin-bottom: 8px; }
+.import-preview details { margin: 15px 0; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #18a894; outline-offset: 3px; }
 @media (max-width: 1100px) { .sidebar { width: 172px; flex-basis: 172px; padding: 20px 10px; } .content { padding: 22px 18px; } .workbench { grid-template-columns: 180px minmax(200px, 1fr) 220px; } .work-detail { padding: 22px 18px; } .topbar { padding: 12px 18px; } .scope-control { margin-right: 0; } }
 @media (max-width: 900px) { .workbench { grid-template-columns: 180px 1fr; } .work-targets { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); } .work-targets .target { display: inline-flex; min-width: 180px; } .bottombar { flex-wrap: wrap; } .bottombar .hint { display: none; } .topbar .label { display: none; } }

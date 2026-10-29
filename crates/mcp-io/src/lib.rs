@@ -446,13 +446,25 @@ impl Engine {
 
     /// 清单与 Agent 配置遵循同一备份、原子写入、验证和回滚规则。
     pub fn save_catalog(&self, path: &Path, content: &str) -> Result<ApplyReceipt> {
-        self.save_checked(path, content, "catalog", |text| {
+        self.save_checked(path, content, "catalog", None, |text| {
+            mcp_core::catalog::load(text).is_ok()
+        })
+    }
+
+    /// 导入预览绑定目标原文；检查放在备份和写入的同一保存流程内。
+    pub fn save_catalog_if_unchanged(
+        &self,
+        path: &Path,
+        content: &str,
+        expected: Option<&str>,
+    ) -> Result<ApplyReceipt> {
+        self.save_checked(path, content, "catalog", Some(expected), |text| {
             mcp_core::catalog::load(text).is_ok()
         })
     }
 
     pub fn save_settings(&self, path: &Path, content: &str) -> Result<ApplyReceipt> {
-        self.save_checked(path, content, "settings", |text| {
+        self.save_checked(path, content, "settings", None, |text| {
             serde_json::from_str::<serde_json::Value>(text).is_ok_and(|value| value.is_object())
         })
     }
@@ -462,6 +474,7 @@ impl Engine {
         path: &Path,
         content: &str,
         kind: &str,
+        expected: Option<Option<&str>>,
         valid: fn(&str) -> bool,
     ) -> Result<ApplyReceipt> {
         if !valid(content) {
@@ -470,6 +483,9 @@ impl Engine {
         let path = std::path::absolute(path).map_err(io_err)?;
         let path_text = path.display().to_string();
         let before = self.read_text(&path)?;
+        if expected.is_some_and(|expected| before.as_deref() != expected) {
+            return Err(IoError::Conflict("配置库已变化，请重新预览导入".into()));
+        }
         if before.as_deref() == Some(content) {
             return Ok(ApplyReceipt::default());
         }

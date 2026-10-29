@@ -9,6 +9,9 @@ mod dto;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(std::sync::Mutex::new(
+            mcp_app::importing::ImportSessions::default(),
+        ))
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
             commands::load_settings,
@@ -18,6 +21,10 @@ pub fn run() {
             commands::create_catalog,
             commands::detect,
             commands::read_client_config,
+            commands::scan_import,
+            commands::preview_import,
+            commands::commit_import,
+            commands::cancel_import,
             commands::matrix,
             commands::load_catalog,
             commands::save_catalog,
