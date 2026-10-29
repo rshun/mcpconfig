@@ -19,6 +19,11 @@ export function ImportPanel({ clientId, catalogPath, scope, projectRoot, onClose
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const revision = useRef(0);
+  const panelRef = useRef<HTMLElement | null>(null);
+  const previewRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => { panelRef.current?.scrollIntoView({ block: "start" }); }, []);
+  useEffect(() => { if (preview) previewRef.current?.scrollIntoView({ block: "start" }); }, [preview]);
 
   useEffect(() => {
     let active = true;
@@ -62,11 +67,11 @@ export function ImportPanel({ clientId, catalogPath, scope, projectRoot, onClose
     try {
       const value = await api.commitImport(preview.previewId, scope, projectRoot);
       onDirty(false); await onImported(value); onClose();
-    } catch (e) { setError(String(e)); setPreview(null); }
+    } catch (e) { setError(String(e)); setPreview(null); panelRef.current?.scrollIntoView({ block: "start" }); }
     finally { setCommitting(false); onBusy(false); }
   }
   const replacing = preview?.changes.some((change) => change.action === "replace") ?? false;
-  return <section className="panel import-panel" aria-label="从 Agent 导入配置库">
+  return <section ref={panelRef} className="panel import-panel" aria-label="从 Agent 导入配置库">
     <div className="panel-head"><b>从 Agent 导入配置库</b><div className="spacer" />
       <button className="btn small" disabled={committing} onClick={onClose}>取消导入</button></div>
     <div className="panel-body">
@@ -101,7 +106,7 @@ export function ImportPanel({ clientId, catalogPath, scope, projectRoot, onClose
         {scan?.items.length === 0 && <p>来源文件中没有 MCP 条目。</p>}
         <button className="btn primary" disabled={!ready || busy || committing} onClick={makePreview}>{busy ? "处理中…" : "预览导入"}</button>
       </fieldset>
-      {preview && <div className="import-preview" aria-label="导入差异预览">
+      {preview && <div ref={previewRef} className="import-preview" aria-label="导入差异预览">
         <h2>将导入 {preview.changes.length} 项</h2>
         {preview.changes.map((change) => <details key={change.targetName} open>
           <summary>{LABEL[change.action]} · {change.sourceName} → {change.targetName}</summary>

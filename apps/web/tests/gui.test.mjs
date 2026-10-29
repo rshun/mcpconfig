@@ -389,6 +389,7 @@ test("真实 GUI 验证选择写入和只读查看已有 Agent MCP", { timeout: 
   await setField("目标名称 alpha", "alpha-imported"); await setField("环境变量 alpha /auth/token_env", "API_KEY");
   await checkbox("选择导入 new-mcp"); await setField("环境变量 new-mcp /args/0", "MCP_ARGUMENT");
   await button("预览导入"); await importPreviewReady();
+  await until(() => evaluate("document.querySelector('[aria-label=\"导入差异预览\"]').getBoundingClientRect().top < innerHeight"), "导入预览自动进入可视区");
   await screenshot("agent-import-preview");
   await button("确认导入配置库");
   await until(() => evaluate("document.body.textContent.includes('已导入 2 项到配置库；源 Agent 文件未修改')"), "导入完成");
