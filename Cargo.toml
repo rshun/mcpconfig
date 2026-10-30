@@ -1,0 +1,37 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/mcp-core",
+    "crates/mcp-io",
+    "crates/mcp-app",
+    "crates/mcp-cli",
+    "apps/web/src-tauri",
+]
+# 默认构建不含桌面端：Tauri 依赖较重，且 CI 的 Linux 任务只需 CLI
+default-members = [
+    "crates/mcp-core",
+    "crates/mcp-io",
+    "crates/mcp-app",
+    "crates/mcp-cli",
+]
+
+[workspace.package]
+version = "0.4.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.85"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+toml_edit = "0.22"
+thiserror = "2"
+clap = { version = "4", features = ["derive"] }
+tauri = { version = "2", features = [] }
+tauri-build = { version = "2", features = [] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

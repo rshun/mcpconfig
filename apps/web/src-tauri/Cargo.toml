@@ -1,0 +1,18 @@
+[package]
+name = "mcp-desktop"
+description = "MCP Hub 桌面端（Tauri v2 薄适配层）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+tauri = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+mcp-core = { path = "../../../crates/mcp-core" }
+mcp-io = { path = "../../../crates/mcp-io" }
+mcp-app = { path = "../../../crates/mcp-app" }

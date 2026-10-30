@@ -1,0 +1,18 @@
+[package]
+name = "mcp-cli"
+description = "MCP Hub 命令行：Linux / CI / 服务器"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "mcp-hub"
+path = "src/main.rs"
+
+[dependencies]
+mcp-core = { path = "../mcp-core" }
+mcp-io = { path = "../mcp-io" }
+mcp-app = { path = "../mcp-app" }
+clap = { workspace = true }
+serde_json = { workspace = true }

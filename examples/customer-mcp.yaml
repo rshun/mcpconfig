@@ -1,0 +1,70 @@
+# MCP Hub 客户清单（示例）
+#
+# 这是工具的**唯一事实来源**：客户自己维护、自己评审、自己版本管理。
+# 不接公共 Registry，工具不联网同步。
+#
+# 约定：
+#   - scope 省略或写 inherit = 跟随全局默认作用域（默认 user）
+#   - 密钥只写环境变量名（token_env），不要写明文 token
+#   - 平台差异用 overrides 表达，适配器不感知平台
+
+version: 1
+
+entries:
+  # ---- 本地 stdio，带平台路径覆盖 ----
+  - name: stockdb
+    description: 本地行情数据库
+    transport: stdio
+    command: python
+    args:
+      - -u
+      - ${PROJECT_ROOT}/ai_mcp/stockdb_full_mcp.py
+    env:
+      STOCKDB_URL: ${ENV:STOCKDB_URL}
+    scope: user
+    tags: [finance, local]
+    overrides:
+      windows:
+        command: c:/Dev/stockdata/.venv/Scripts/python.exe
+      linux:
+        command: /home/dev/stockdata/.venv/bin/python
+
+  # ---- 远程 HTTP + bearer（推荐写法：只引用环境变量）----
+  - name: github
+    description: GitHub 仓库操作
+    transport: http
+    url: https://api.githubcopilot.com/mcp/
+    auth:
+      type: bearer
+      token_env: GITHUB_PAT
+    scope: project
+    tags: [vcs]
+
+  - name: context7
+    description: 文档检索
+    transport: http
+    url: https://mcp.context7.com/mcp
+    auth:
+      type: bearer
+      token_env: CONTEXT7_API_KEY
+    tags: [docs]
+
+  # ---- 纯本地工具，无需认证 ----
+  - name: playwright
+    description: 浏览器自动化
+    transport: stdio
+    command: npx
+    args:
+      - -y
+      - "@playwright/mcp@latest"
+    tags: [test]
+
+  - name: filesystem
+    description: 文件系统访问（仅项目根）
+    transport: stdio
+    command: npx
+    args:
+      - -y
+      - "@modelcontextprotocol/server-filesystem"
+      - ${PROJECT_ROOT}
+    tags: [local]

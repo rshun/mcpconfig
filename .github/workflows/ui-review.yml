@@ -1,0 +1,42 @@
+name: GUI review
+on:
+  push:
+    branches: [dev]
+    paths:
+      - 'apps/web/src/**'
+      - 'apps/web/tests/**'
+      - '.github/workflows/ui-review.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: gui-review-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  browser:
+    name: GUI flow and visual review (macOS)
+    runs-on: macos-15
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm run test:gui
+        env:
+          CHROME_PATH: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+      - name: Upload screenshots with system CJK fonts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gui-review-macos-${{ github.run_id }}
+          path: apps/web/test-artifacts/*.png
+          if-no-files-found: warn

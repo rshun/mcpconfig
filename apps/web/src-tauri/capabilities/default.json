@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "MCP Hub 默认能力：仅核心 IPC",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
