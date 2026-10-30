@@ -4,7 +4,7 @@
 
 把一份客户自维护的清单，按各客户端的原生格式写入 14 个 MCP 客户端——不用手工配 M×N×K 次。
 
-当前版本：**v0.3.0**。本版新增 Agent 配置安全导入，使用方法与回退见 [发布说明](docs/releases/v0.3.0.md)。
+当前版本：**v0.4.0**。本版采用配置库优先的正式 GUI，使用方法与回退见 [发布说明](docs/releases/v0.4.0.md)。
 
 ## 现在的状态
 
@@ -24,7 +24,7 @@
 
 写入安全修复及其边界见 [安全修复说明](docs/SAFETY.md)。
 界面设计和后续方向见 [设计说明](docs/UI-DIRECTION.md)，可离线打开 [交互原型](docs/ui-workbench.html)。
-dev 中的正式 GUI 已采用配置库优先布局；v0.3.0 安装包仍为上一版工作台。原型只演示操作，不读取或修改本机配置。
+正式 GUI 从 v0.4.0 起采用配置库优先布局。原型只演示操作，不读取或修改本机配置。
 
 Claude Code · Codex CLI · WorkBuddy · Kimi Code · OpenCode(v2) · VS Code · Antigravity · Grok ·
 Cursor · Cline · Gemini CLI · Claude Desktop · Windsurf · Trae
@@ -67,7 +67,7 @@ npm run dev        # 打开 http://localhost:5173/?mock=1
 npm --prefix apps/web run tauri dev     # 需 rustc >= 1.90
 ```
 
-dev 默认进入「我的 MCP」，侧栏只有「我的 MCP / Agents / 变更历史」，底部独立提供「软件设置」。
+默认进入「我的 MCP」，侧栏只有「我的 MCP / Agents / 变更历史」，底部独立提供「软件设置」。
 所有配置都保留在库中；不适用当前范围的条目会说明原因，不会消失。添加、编辑、目录选择、导入和预览通过独立任务对话框完成。
 批量矩阵保留为高级工具。支持 `?page=library|agents|history|settings`，旧页面深链仍可打开对应入口。
 
