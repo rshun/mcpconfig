@@ -106,7 +106,9 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
           case "choose_directory": return window.cancelDirectory ? null : "C:/test/中文项目";
           case "create_catalog": window.catalogMissing = false; return [];
           case "save_catalog": window.catalogEntries = structuredClone(args.catalog.entries); window.hasBackup = true; return [];
-          case "restore": window.restored = true; return 1;
+          case "restore":
+            if (window.delayRestore) await new Promise((resolve) => { window.releaseRestore = resolve; });
+            window.restored = true; return 1;
           case "app_info": return { version: "test", platform: "windows", dataDir: "test-only" };
           case "detect": return activeClients.map((c) => ({ ...c, state: c.id.startsWith("test-") ? "missing" : "ready", configured: c.id.startsWith("test-") ? 0 : 1, path: "C:/test/agent/config.json",
             scopeBlock: args.scope === "local" ? "不支持当前作用域" : null }));
@@ -246,7 +248,13 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     assert.deepEqual(await latest('apply'), { ...planned, dryRun: false });
     await screenshot('history');
     await evaluate('window.confirmAnswer = false'); await button('恢复此备份'); assert.equal(await count('restore'), 0);
-    await evaluate('window.confirmAnswer = true'); await button('恢复此备份'); await has('已恢复 1 个文件');
+    await evaluate('window.confirmAnswer = true; window.delayRestore = true'); await button('恢复此备份');
+    await until(() => evaluate('typeof window.releaseRestore === "function"'), '恢复正在进行');
+    assert.equal(await evaluate('document.querySelector(".backup-card button").disabled'), true);
+    assert.equal(await evaluate('[...document.querySelectorAll("nav button")].every((b) => b.disabled)'), true);
+    await evaluate('document.querySelector(".backup-card button").click()');
+    assert.equal(await count('restore'), 1, '恢复期间不能重复提交');
+    await evaluate('window.delayRestore = false; window.releaseRestore()'); await has('已恢复 1 个文件');
 
     // 勾选变动后，迟到的响应不能恢复已经失效的预览。
     await click('我的 MCP'); await ready(); await click('查看 alpha'); await click('alpha → Claude Code');

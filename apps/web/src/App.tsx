@@ -19,7 +19,7 @@ type Page = "library" | "agents" | "history" | "settings";
 type Overlay = { kind: "editor"; entry: Entry | null } | { kind: "library" | "project" | "matrix" | "preview" } | null;
 type Feedback = { tone: "ok" | "warn" | "danger"; text: string } | null;
 const NAV: { id: Page; label: string; icon: IconName; hint: string }[] = [
-  { id: "library", label: "我的 MCP", icon: "library", hint: "维护配置与选择目标" },
+  { id: "library", label: "我的 MCP", icon: "library", hint: "管理配置与分发" },
   { id: "agents", label: "Agents", icon: "agents", hint: "查看与导入已有配置" },
   { id: "history", label: "变更历史", icon: "history", hint: "写入结果与备份恢复" },
 ];
@@ -200,9 +200,10 @@ export default function App() {
           setDirty(false); invalidatePlan(); await refresh(catalogPath, scope, projectRoot); await loadBackups(); setPage("library"); setFocus(null);
           setFeedback({ tone: value.warnings.length ? "warn" : "ok", text: `已导入 ${value.imported} 项到 MCP 库，源 Agent 文件未修改。${value.warnings.length ? value.warnings.join("；") : "下一步：选择配置并应用到目标 Agent。"}` });
         }} />}
-      {page === "history" && <BackupsPage backups={backups} receipt={receipt} onRestore={async (id) => {
+      {page === "history" && <BackupsPage backups={backups} receipt={receipt} busy={writing} onRestore={async (id) => {
+        if (writing) return;
         if (!window.confirm(`恢复备份 ${id} 将覆盖涉及文件的当前内容。请先另存后续编辑，确认继续？`)) return;
-        setWriting(true); try { const restored = await api.restore(id); await refresh(catalogPath, scope, projectRoot); await loadBackups(); setReceipt(null); setFeedback({ tone: "ok", text: `已恢复 ${restored} 个文件，请在目标 Agent 中核对配置。` }); }
+        setWriting(true); setFeedback(null); try { const restored = await api.restore(id); await refresh(catalogPath, scope, projectRoot); await loadBackups(); setReceipt(null); setFeedback({ tone: "ok", text: `已恢复 ${restored} 个文件，请在目标 Agent 中核对配置。` }); }
         catch (e) { setFeedback({ tone: "danger", text: String(e) }); } finally { setWriting(false); }
       }} />}
       {page === "settings" && settings && <SettingsPage key={settingsValid ? "valid" : "recovery"} settings={settings} dataDir={info?.dataDir ?? "~/.mcp-hub"} onDirty={setDirty} onBusy={setWriting} onSave={async (value) => {
