@@ -376,9 +376,10 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     // 软件默认设置下次启动使用，当前上下文不被偷偷切换。
     await click('软件设置'); await setField('启动默认范围', 'project'); await setField('默认写入策略', 'replace');
     await setField('备份目录', 'C:/test/new-backups'); await evaluate('window.rejectSettings = true');
-    await button('保存全局设置'); await has('测试设置保存失败');
+    await button('保存软件设置'); await has('测试设置保存失败');
     assert.equal(await evaluate('JSON.parse(sessionStorage.getItem("fixtureSettings")).defaultScope'), 'user');
-    await evaluate('window.rejectSettings = false'); await button('保存全局设置'); await has('设置已保存。默认配置库');
+    await evaluate('window.rejectSettings = false'); await button('保存软件设置'); await has('设置已保存。默认配置库');
+    assert.equal(await evaluate('document.querySelectorAll(".content .banner.ok").length'), 1, '成功提示只显示一次');
     await screenshot('software-settings');
     await click('我的 MCP'); assert.equal(await evaluate('document.querySelector("[aria-label=\\"配置范围\\"]").value'), 'user');
     await send('Page.reload', {}, sessionId); await ready();

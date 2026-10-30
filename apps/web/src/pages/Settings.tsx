@@ -13,7 +13,7 @@ export function SettingsPage({ settings, dataDir, onSave, onDirty, onBusy }: { s
   }
   async function save() {
     setSaving(true); onBusy(true); setMessage("");
-    try { await onSave(draft); onDirty(false); setMessage("设置已保存。默认配置库、范围和写入策略将在下次启动时使用；当前工作范围保持不变。"); }
+    try { await onSave(draft); onDirty(false); }
     catch (e) { setMessage(`保存失败：${String(e)}`); }
     finally { setSaving(false); onBusy(false); }
   }
@@ -30,6 +30,6 @@ export function SettingsPage({ settings, dataDir, onSave, onDirty, onBusy }: { s
       <Field label="默认写入策略"><select aria-label="默认写入策略" className="select" value={draft.defaultMode} onChange={(e) => patch({ defaultMode: e.target.value as GuiSettings["defaultMode"] })}>
         <option value="merge">字段合并 · 保留其他字段</option><option value="replace">整条替换 · 替换选中的同名 MCP</option></select></Field>
       <div className="detail-note">设置文件：<span className="mono">{dataDir}/settings.json</span><br />上次项目：<span className="mono">{draft.lastProjectDir ?? "尚未选择"}</span></div>
-      <button className="btn primary" disabled={saving} onClick={save}>{saving ? "保存中…" : "保存全局设置"}</button>
+      <button className="btn primary" disabled={saving} onClick={save}>{saving ? "保存中…" : "保存软件设置"}</button>
     </fieldset></div></div></>;
 }

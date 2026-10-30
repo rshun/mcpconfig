@@ -209,7 +209,7 @@ export default function App() {
       {page === "settings" && settings && <SettingsPage key={settingsValid ? "valid" : "recovery"} settings={settings} dataDir={info?.dataDir ?? "~/.mcp-hub"} onDirty={setDirty} onBusy={setWriting} onSave={async (value) => {
         const warnings = await api.saveSettings(value); setSettings(value); setSettingsValid(true); setDirty(false); invalidatePlan();
         if (!settingsValid) { setCatalogPath(value.catalogPath); setScope(value.defaultScope); setProject(value.lastProjectDir); setMode(value.defaultMode); await refresh(value.catalogPath, value.defaultScope, value.lastProjectDir); }
-        await loadBackups(); setFeedback({ tone: warnings.length ? "warn" : "ok", text: warnings.length ? warnings.join("；") : "软件设置已保存，当前工作范围保持不变。" });
+        await loadBackups(); setFeedback({ tone: warnings.length ? "warn" : "ok", text: warnings.length ? warnings.join("；") : "设置已保存。默认配置库、范围和写入策略将在下次启动时使用；当前工作范围保持不变。" });
       }} />}
     </div></main>
     {overlay && <Dialog key={overlay.kind} title={overlay.kind === "editor" ? overlay.entry ? `编辑 ${overlay.entry.name}` : "添加 MCP" : overlay.kind === "library" ? "管理配置库" : overlay.kind === "project" ? "选择项目目录" : overlay.kind === "matrix" ? "批量选择" : "预览变更"}
