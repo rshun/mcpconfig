@@ -12,6 +12,13 @@ let settings: GuiSettings = { version: 1, catalogPath: "C:/Users/Demo/.mcp-hub/c
 let importSerial = 0;
 const importScans = new Map<string, ImportScan>();
 const importPreviews = new Map<string, ImportPreview & { scope: Scope; scanId: string }>();
+let distributionSerial = 0;
+let distributionPreview: { id: string; request: string; source: string; settings: string; created: number; plan: Omit<PlanDto, "previewId"> } | null = null;
+
+function distributionRequest(args: Record<string, unknown> | undefined) {
+  return JSON.stringify({ catalogPath: args?.catalogPath ?? settings.catalogPath, selection: args?.selection, scope: args?.scope ?? "user",
+    projectRoot: args?.scope === "project" ? args.projectRoot ?? null : null, mode: args?.mode ?? "merge", allowCommentStrip: args?.allowCommentStrip ?? false });
+}
 
 const params =
   typeof window !== "undefined"
@@ -205,7 +212,7 @@ const BACKUPS = [
   },
 ];
 
-function selectedPlan(args: Record<string, unknown> | undefined, scope: Scope): PlanDto {
+function selectedPlan(args: Record<string, unknown> | undefined, scope: Scope): Omit<PlanDto, "previewId"> {
   const selection = args?.selection as McpSelection | undefined;
   if (!selection) throw new Error("必须提供 MCP 选择");
   const scopedEntries = ENTRIES.filter((e) => effScope(e, scope) === scope);
@@ -390,11 +397,22 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
     }
 
     case "plan": {
-      return selectedPlan(args, scope) as T;
+      distributionPreview = null;
+      const plan = selectedPlan(args, scope);
+      const previewId = `demo-distribution-${++distributionSerial}`;
+      distributionPreview = { id: previewId, request: distributionRequest(args), source: JSON.stringify(ENTRIES), settings: JSON.stringify(settings), created: Date.now(), plan };
+      return { ...plan, previewId } as T;
     }
 
+    case "cancel_plan":
+      if (distributionPreview?.id === args?.previewId) distributionPreview = null;
+      return undefined as T;
+
     case "apply": {
-      const plan = selectedPlan(args, scope);
+      if (!distributionPreview || distributionPreview.id !== args?.previewId) throw new Error("分发预览已失效，请重新预览");
+      const prepared = distributionPreview; distributionPreview = null;
+      if (Date.now() - prepared.created >= 600000 || prepared.request !== distributionRequest(args) || prepared.source !== JSON.stringify(ENTRIES) || prepared.settings !== JSON.stringify(settings)) throw new Error("配置或上下文已变化，本次未写入，请重新预览");
+      const plan = prepared.plan;
       const dryRun = args?.dryRun === true;
       return {
         written: dryRun ? 0 : plan.writable,

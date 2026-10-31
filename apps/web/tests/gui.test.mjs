@@ -160,21 +160,38 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
           case "cancel_import": return null;
           case "backups": return window.hasBackup ? [{ id: "test-backup", createdAt: "2026-10-29T12:00:00Z", files: 1, paths: ["C:/test/catalog.yaml"] }] : [];
           case "plan": {
+            window.distributionPreview = null;
             if (window.delayPlan) await new Promise((resolve) => { window.releasePlan = resolve; });
+            const previewId = `fixture-distribution-${window.testCalls.length}`;
+            window.lastDistributionId = previewId;
+            window.distributionPreview = { id: previewId, request: JSON.stringify(args), catalog: JSON.stringify(window.catalogEntries), settings: sessionStorage.getItem('fixtureSettings') };
             const files = Object.entries(args.selection).map(([clientId, names]) => ({
               clientId, clientName: clientId, path: `C:/test/${args.scope}/${clientId}/mcp.json`, format: "JSON", scope: args.scope,
               existed: false, blocked: null, newCount: names.length, updateCount: 0, unchangedCount: 0,
               diff: `+${names.join(",")}`, warnings: [], willWrite: true,
             }));
-            return { entryCount: 2, files, writable: files.length, issues: [], missingVars: [], skipped: [] };
+            return { previewId, entryCount: 2, files, writable: files.length, issues: [], missingVars: [], skipped: [] };
           }
-          case "apply": window.hasBackup = true; return window.applyFailure ? {
+          case "cancel_plan":
+            if (window.distributionPreview?.id === args.previewId) window.distributionPreview = null;
+            return null;
+          case "apply": {
+            const prepared = window.distributionPreview;
+            if (!prepared || prepared.id !== args.previewId) throw new Error('分发预览无效，请重新预览');
+            window.distributionPreview = null;
+            const { previewId, dryRun, ...request } = args;
+            if (prepared.request !== JSON.stringify(request) || prepared.catalog !== JSON.stringify(window.catalogEntries)) throw new Error('配置库已变化，本次未写入，请重新预览');
+            if (prepared.settings !== sessionStorage.getItem('fixtureSettings')) throw new Error('软件设置已变化，本次未写入，请重新预览');
+            if (window.staleDistribution) throw new Error(`${window.staleDistribution === 'expired' ? '分发预览已过期' : '目标配置已变化'}，本次未写入，请重新预览`);
+            window.distributionWrites = (window.distributionWrites || 0) + 1;
+            window.hasBackup = true; return window.applyFailure ? {
             written: 1, blocked: 0, failed: 2, backupId: "test-backup",
             outcomes: [
               { clientId: "claude-code", status: "rollbackFailed", message: "自动回滚失败，请检查备份" },
               { clientId: "-", status: "auditFailed", message: "审计写入失败，文件未回滚" },
             ],
           } : { written: 2, blocked: 0, failed: 0, backupId: null, outcomes: [] };
+          }
           default: throw new Error(`未预期的 IPC：${command}`);
         }
       },
@@ -244,8 +261,9 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     assert.equal(await evaluate('[...document.querySelectorAll("button")].some((b) => b.textContent.includes("确认写入"))'), false);
     await button('重新生成预览'); await present('.file-plan');
     const planned = await latest('plan'); assert.equal(planned.mode, 'replace');
+    const previewId = await evaluate('window.lastDistributionId');
     await button('确认写入 2 个文件'); await has('配置已写入');
-    assert.deepEqual(await latest('apply'), { ...planned, dryRun: false });
+    assert.deepEqual(await latest('apply'), { ...planned, dryRun: false, previewId });
     await screenshot('history');
     await evaluate('window.confirmAnswer = false'); await button('恢复此备份'); assert.equal(await count('restore'), 0);
     await evaluate('window.confirmAnswer = true; window.delayRestore = true'); await button('恢复此备份');
@@ -262,6 +280,7 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     await until(() => evaluate('typeof window.releasePlan === "function"'), '延迟计划');
     await click('alpha → Claude Code'); await evaluate('window.delayPlan = false; window.releasePlan()'); await pause(180);
     assert.equal(await evaluate('document.querySelector("dialog")'), null);
+    await until(() => evaluate('window.distributionPreview === null'), '迟到的预览在后端被释放');
     await button('批量矩阵'); await present('.matrix');
     await evaluate('document.querySelector("button[title=\\"alpha → Claude Code\\"]").click()');
     await escape(); await absent('dialog');
@@ -283,6 +302,25 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     assert.equal(saved.enabled, false); assert.equal(saved.timeout_seconds, 45);
     assert.deepEqual(saved.overrides, { windows: { command: 'python.exe' } });
     assert.equal(await count('apply'), 1, '保存库不能自动分发');
+    // 后端因配置变化拒绝后，弹窗内显示原因，移除旧确认入口且要求新 ID。
+    await click('alpha → Claude Code'); await button('预览变更'); await previewReady();
+    const writesBeforeConflict = await evaluate('window.distributionWrites');
+    for (const kind of ['catalog', 'target', 'settings', 'expired']) {
+      const oldId = await evaluate('window.lastDistributionId');
+      if (kind === 'catalog') await evaluate('window.catalogEntries[0].description = "外部更新的说明"');
+      if (kind === 'settings') await evaluate('sessionStorage.setItem("fixtureSettings", JSON.stringify({version:1,catalogPath:"C:/test/catalog.yaml",backupDir:"C:/test/backups",defaultScope:"user",defaultMode:"merge",lastProjectDir:null}))');
+      if (kind === 'target' || kind === 'expired') await evaluate(`window.staleDistribution = ${JSON.stringify(kind)}`);
+      await button('确认写入 1 个文件'); await has('确认写入已停止');
+      await until(() => evaluate('!!document.querySelector("dialog .banner.danger")'), '阻止原因在预览弹窗内可见');
+      assert.equal(await evaluate('[...document.querySelectorAll("button")].some((b) => b.textContent.includes("确认写入"))'), false);
+      assert.equal(await evaluate('window.distributionWrites'), writesBeforeConflict);
+      await evaluate('window.staleDistribution = null');
+      await button('重新生成预览'); await present('.file-plan');
+      assert.notEqual(await evaluate('window.lastDistributionId'), oldId);
+    }
+    await button('返回修改'); await absent('dialog');
+    await until(() => evaluate('window.distributionPreview === null'), '关闭预览释放后端快照');
+    await click('alpha → Claude Code');
     await button('添加 MCP'); await present('[aria-label="MCP 名称"]');
     await setField('MCP 名称', 'alpha'); await button('保存到 MCP 库'); await has('配置库已有同名 MCP');
     const savesBefore = await count('save_catalog');

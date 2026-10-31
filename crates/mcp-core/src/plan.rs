@@ -23,7 +23,7 @@ pub struct EntryChange {
 }
 
 /// 一个目标文件的完整计划。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FilePlan {
     pub client_id: String,
     pub client_name: String,

@@ -6,6 +6,7 @@
 //! 因此换前端不需要改动任何业务逻辑（见架构文档 §3.2）。
 
 pub mod detect;
+pub mod distribution;
 pub mod env;
 pub mod importing;
 pub mod inspect;
@@ -92,7 +93,17 @@ impl App {
 
     /// 制定应用计划（不写盘）。
     pub fn plan(&self, req: &PlanRequest) -> Result<PlanOutcome, AppError> {
-        let (mut cat, issues) = self.load_catalog(&req.catalog_path)?;
+        let (cat, issues) = self.load_catalog(&req.catalog_path)?;
+        self.plan_catalog(req, cat, issues)
+    }
+
+    /// 使用已经读取的同一份清单编译，防止预览快照与实际解析读取两次文件。
+    pub(crate) fn plan_catalog(
+        &self,
+        req: &PlanRequest,
+        mut cat: Catalog,
+        issues: Vec<String>,
+    ) -> Result<PlanOutcome, AppError> {
         cat.entries = resolve::entries_for_scope(&cat.entries, req.scope, req.scope);
 
         let ids: Vec<String> = match &req.clients {
@@ -418,7 +429,7 @@ impl App {
 
 // ---------------------------------------------------------------- 请求/响应
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PlanRequest {
     pub catalog_path: PathBuf,
     /// `None` 表示全部客户端
@@ -445,7 +456,7 @@ impl PlanRequest {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PlanOutcome {
     pub plans: Vec<FilePlan>,
     pub catalog_issues: Vec<String>,

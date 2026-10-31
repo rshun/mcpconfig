@@ -52,11 +52,13 @@ export const api = {
   saveCatalog: (path: string, catalog: unknown) =>
     call<string[]>("save_catalog", { path, catalog }),
   plan: (request: PlanInput) => call<PlanDto>("plan", { ...request }),
-  apply: (request: PlanInput, dryRun: boolean) =>
+  apply: (request: PlanInput, dryRun: boolean, previewId: string) =>
     call<ReceiptDto>("apply", {
       ...request,
       dryRun,
+      previewId,
     }),
+  cancelPlan: (previewId: string) => call<void>("cancel_plan", { previewId }),
   backups: () => call<BackupDto[]>("backups"),
   restore: (id: string) => call<number>("restore", { id }),
 };

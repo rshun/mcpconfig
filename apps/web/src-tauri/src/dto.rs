@@ -4,7 +4,7 @@
 
 use mcp_app::detect::{ClientStatus, DetectState};
 use mcp_app::inspect::ExistingConfig;
-use mcp_app::{CellState, MatrixView};
+use mcp_app::{CellState, MatrixView, PlanOutcome};
 use mcp_core::plan::{ChangeKind, FilePlan};
 use mcp_io::{ApplyReceipt, OutcomeStatus};
 use serde::Serialize;
@@ -229,12 +229,74 @@ impl From<FilePlan> for FileDto {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlanDto {
+    pub preview_id: String,
     pub entry_count: usize,
     pub issues: Vec<String>,
     pub missing_vars: Vec<String>,
     pub skipped: Vec<SkippedDto>,
     pub files: Vec<FileDto>,
     pub writable: usize,
+}
+
+impl From<(String, PlanOutcome)> for PlanDto {
+    fn from((preview_id, out): (String, PlanOutcome)) -> Self {
+        let writable = out.writable();
+        Self {
+            preview_id,
+            entry_count: out.entry_count,
+            issues: out.catalog_issues,
+            missing_vars: out.missing_vars,
+            skipped: out
+                .skipped
+                .into_iter()
+                .map(|(client_id, reason)| SkippedDto { client_id, reason })
+                .collect(),
+            files: out.plans.into_iter().map(FileDto::from).collect(),
+            writable,
+        }
+    }
+}
+
+#[cfg(test)]
+mod distribution_tests {
+    use super::*;
+    #[test]
+    fn preview_dto_contains_an_id_and_redacted_diff_but_no_raw_plan() {
+        let mut entry = mcp_core::McpEntry::new_stdio(
+            "alpha",
+            "python",
+            vec!["your_argument_secret_here".into()],
+        );
+        entry
+            .env
+            .insert("API_KEY".into(), "your_new_secret_here".into());
+        let plan = mcp_core::plan::plan_file(mcp_core::adapters::by_id("claude-code").unwrap(), "example.json", mcp_core::Scope::User,
+            Some(r#"{"unrelated":"your_other_secret_here","mcpServers":{"alpha":{"command":"python","env":{"API_KEY":"your_old_secret_here"}}}}"#),
+            &[entry], mcp_core::plan::MergeMode::Merge, false).unwrap();
+        let dto = PlanDto::from((
+            "preview-example".into(),
+            PlanOutcome {
+                plans: vec![plan],
+                catalog_issues: vec![],
+                missing_vars: vec![],
+                skipped: vec![],
+                entry_count: 1,
+            },
+        ));
+        let value = serde_json::to_value(dto).unwrap();
+        assert_eq!(value["previewId"], "preview-example");
+        let serialized = value.to_string();
+        for secret in [
+            "your_argument_secret_here",
+            "your_new_secret_here",
+            "your_other_secret_here",
+            "your_old_secret_here",
+        ] {
+            assert!(!serialized.contains(secret));
+        }
+        assert!(value["files"][0].get("oldContent").is_none());
+        assert!(value["files"][0].get("newContent").is_none());
+    }
 }
 
 #[derive(Serialize)]

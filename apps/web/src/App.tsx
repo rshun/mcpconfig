@@ -47,6 +47,7 @@ export default function App() {
   const [focus, setFocus] = useState<string | null>(null);
   const [plan, setPlan] = useState<PlanDto | null>(null);
   const [planRequest, setPlanRequest] = useState<PlanInput | null>(null);
+  const [planError, setPlanError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<ReceiptDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [planning, setPlanning] = useState(false);
@@ -55,6 +56,7 @@ export default function App() {
   const [feedback, setFeedback] = useState<Feedback>(null);
   const readRevision = useRef(0);
   const planRevision = useRef(0);
+  const previewId = useRef<string | null>(null);
   const planningRequest = useRef(0);
   const backupRevision = useRef(0);
   const entries = (catalog?.catalog?.entries ?? []) as Entry[];
@@ -64,7 +66,12 @@ export default function App() {
   const busy = writing || !settingsValid;
   const contextLocked = busy || dirty || overlay !== null;
 
-  const invalidatePlan = useCallback(() => { planRevision.current++; setPlan(null); setPlanRequest(null); }, []);
+  const invalidatePlan = useCallback(() => {
+    planRevision.current++;
+    const id = previewId.current; previewId.current = null;
+    if (id) api.cancelPlan(id).catch(() => {});
+    setPlan(null); setPlanRequest(null); setPlanError(null);
+  }, []);
   function canLeave() { return !dirty || window.confirm("有未保存的修改，确认放弃这些修改？"); }
   function navigate(next: Page) {
     if (writing || !canLeave()) return;
@@ -120,7 +127,11 @@ export default function App() {
         try { const defaults = await api.defaultSettings(); if (active) setSettings(defaults); } catch { /* 保留原始设置错误 */ }
       }
     })();
-    return () => { active = false; readRevision.current++; backupRevision.current++; };
+    return () => {
+      active = false; readRevision.current++; backupRevision.current++; planRevision.current++;
+      const id = previewId.current; previewId.current = null;
+      if (id) api.cancelPlan(id).catch(() => {});
+    };
   }, [refresh, loadBackups]);
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => { if (dirty || writing) { event.preventDefault(); event.returnValue = ""; } };
@@ -149,19 +160,26 @@ export default function App() {
     setPlanning(true); setFeedback(null);
     const request: PlanInput = { catalogPath, selection: selectionFromCells(selected), scope, projectRoot, mode, allowCommentStrip: false };
     try {
-      const value = await api.plan(request); if (revision !== planRevision.current) return;
+      const value = await api.plan(request);
+      if (!value.previewId) throw new Error("预览缺少一致性凭证，请更新配套桌面端后重新预览");
+      if (revision !== planRevision.current) { api.cancelPlan(value.previewId).catch(() => {}); return; }
+      previewId.current = value.previewId;
       setPlan(value); setPlanRequest(request); setOverlay({ kind: "preview" });
-    } catch (e) { if (revision === planRevision.current) setFeedback({ tone: "danger", text: String(e) }); }
+    } catch (e) { if (revision === planRevision.current) { setPlanError(String(e)); setFeedback({ tone: "danger", text: String(e) }); } }
     finally { if (requestId === planningRequest.current) setPlanning(false); }
   }
   async function applyPlan() {
-    if (!planRequest || !plan?.writable || writing) return;
+    if (!planRequest || !plan?.writable || !plan.previewId || writing) return;
     setWriting(true); setFeedback(null);
     try {
-      const value = await api.apply(planRequest, false); setReceipt(value);
+      const value = await api.apply(planRequest, false, plan.previewId); setReceipt(value);
       setOverlay(null); await refresh(catalogPath, scope, projectRoot); await loadBackups(); setPage("history");
       setFeedback({ tone: value.failed || value.blocked ? "warn" : "ok", text: `已写入 ${value.written} 个文件${value.failed ? `，${value.failed} 项失败，请检查逐项结果` : value.blocked ? `，${value.blocked} 项被阻止` : "；备份可在下方恢复"}` });
-    } catch (e) { setFeedback({ tone: "danger", text: String(e) }); }
+    } catch (e) {
+      invalidatePlan();
+      const text = `确认写入已停止：${String(e)}。请重新预览后再确认。`;
+      setPlanError(text); setFeedback({ tone: "danger", text });
+    }
     finally { setWriting(false); }
   }
   async function saveEntries(list: Entry[]) {
@@ -231,7 +249,7 @@ export default function App() {
         setFeedback({ tone: warnings.length ? "warn" : "ok", text: warnings.length ? warnings.join("；") : "项目目录已更新，请为当前项目选择分发目标。" });
       }} />}
       {overlay.kind === "matrix" && <><p className="dialog-intro">高级批量工具。每个单元格表示一组 MCP 与 Agent，未勾选的条目保持不变。</p><MatrixPage matrix={matrix} selected={selected} onToggle={toggle} onSelectAllClient={selectAllClient} onPlan={makePlan} loading={planning || !contextReady} /></>}
-      {overlay.kind === "preview" && <DiffPage plan={plan} applying={writing} onApply={applyPlan} onBack={closeOverlay} mode={mode} onModeChange={changeMode} onReplan={makePlan} planning={planning} />}
+      {overlay.kind === "preview" && <DiffPage plan={plan} error={planError} applying={writing} onApply={applyPlan} onBack={closeOverlay} mode={mode} onModeChange={changeMode} onReplan={makePlan} planning={planning} />}
     </Dialog>}
   </div>;
 }
