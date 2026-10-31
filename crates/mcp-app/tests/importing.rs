@@ -972,3 +972,33 @@ fn mixed_client_variable_references_are_normalized_without_mapping_or_resolution
         Some("https://example.invalid/${ENV:HOST}/mcp")
     );
 }
+
+#[test]
+fn a_password_value_that_looks_like_an_inline_flag_is_mapped_in_full() {
+    let (app, target) = fixture(Platform::current());
+    source(
+        &app,
+        adapters::by_id("claude-code").unwrap(),
+        Scope::User,
+        &[(
+            "local",
+            json!({"command":"python", "args":["--password","-your_password_prefix_here=your_password_suffix_here"]}),
+        )],
+    );
+    let mut sessions = ImportSessions::default();
+    let scan = sessions
+        .scan(&app, &target, "claude-code", Scope::User)
+        .unwrap();
+    let preview = sessions
+        .preview(
+            &app,
+            &scan.scan_id,
+            &[choice(&scan, "local", ImportAction::Add, "local")],
+        )
+        .unwrap();
+    let text = serde_json::to_string(&preview).unwrap();
+    assert!(
+        !text.contains("your_password_prefix_here") && !text.contains("your_password_suffix_here")
+    );
+    assert_eq!(preview.changes[0].after["args"][1], "${ENV:IMPORT_VALUE_0}");
+}

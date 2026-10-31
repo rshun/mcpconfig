@@ -110,3 +110,13 @@ fn credential_file_paths_and_consumed_flag_values_do_not_hide_ordinary_values() 
         json!(["--password", "[已隐藏]", "8080"])
     );
 }
+
+#[test]
+fn passwords_matching_auth_scheme_names_are_still_credentials() {
+    for value in ["basic", "Bearer ", " BASIC ", "${ENV:MY_KEY}basic"] {
+        assert_eq!(
+            config_entry(&json!({"env":{"PASSWORD":value}}))["env"]["PASSWORD"],
+            "[已隐藏]"
+        );
+    }
+}
