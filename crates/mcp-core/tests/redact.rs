@@ -57,3 +57,43 @@ fn sensitive_changes_stay_visible_without_exposing_old_or_new_credentials() {
     assert_eq!(new["env"]["API_KEY"], "[已隐藏：新值]");
     assert_eq!(new["args"][1], "8081");
 }
+
+#[test]
+fn embedded_credentials_and_encoded_query_names_are_hidden_without_hiding_plain_urls() {
+    for value in [
+        "https://user:your_password_here@example.invalid/mcp",
+        "https://example.invalid/mcp?access_token=your_token_here",
+        "https://example.invalid/mcp?api%5Fkey=your_api_key_here",
+        "https://example.invalid/mcp?X-Amz-Signature=your_signature_here",
+        "--header=Authorization: Bearer your_token_here",
+        "TOKEN=your_token_here",
+        "npx @scope/mcp --password your_password_here",
+        "--value=sk-your_placeholder_key_here_123",
+    ] {
+        assert_eq!(config_entry(&json!({"custom":value}))["custom"], "[已隐藏]");
+    }
+    let ordinary = json!({"url":"https://example.invalid/mcp?project=demo", "args":["--tokenizer=cl100k_base", "--max-tokens=4096"], "env":{"API_BASE_URL":"https://example.invalid","publicKey":"public-key-name"}});
+    assert_eq!(config_entry(&ordinary), ordinary);
+}
+
+#[test]
+fn existing_references_and_mixed_non_secret_text_are_kept_without_resolving_values() {
+    let value = json!({
+        "args":["--api-key", "${ENV:MY_KEY}", "--port", "8080"],
+        "command":"npx @scope/mcp --api-key=${ENV:MY_KEY} --port=8080",
+        "cwd":"${HOME}/My Projects",
+        "url":"https://example.invalid/mcp?token=${ENV:MY_TOKEN}",
+        "headers":{"Authorization":"Bearer ${ENV:MY_TOKEN}"},
+        "auth":{"type":"bearer", "token_env":"MY_TOKEN"}
+    });
+    assert_eq!(config_entry(&value), value);
+    assert_eq!(
+        config_entry(&json!({"auth":{"type":"bearer", "value":"your_auth_value_here"}}))["auth"]
+            ["value"],
+        "[已隐藏]"
+    );
+    assert_eq!(
+        config_entry(&json!({"env":{"API_KEY":"prefix-${ENV:MY_KEY}"}}))["env"]["API_KEY"],
+        "[已隐藏]"
+    );
+}

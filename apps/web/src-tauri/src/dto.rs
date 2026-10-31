@@ -265,7 +265,11 @@ mod distribution_tests {
         let mut entry = mcp_core::McpEntry::new_stdio(
             "alpha",
             "python",
-            vec!["your_argument_secret_here".into()],
+            vec![
+                "--api-key".into(),
+                "your_argument_secret_here".into(),
+                "--port=8080".into(),
+            ],
         );
         entry
             .env
@@ -296,6 +300,7 @@ mod distribution_tests {
         }
         assert!(value["files"][0].get("oldContent").is_none());
         assert!(value["files"][0].get("newContent").is_none());
+        assert!(serialized.contains("--port=8080"));
     }
 }
 

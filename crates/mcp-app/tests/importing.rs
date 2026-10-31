@@ -85,15 +85,18 @@ fn all_14_adapters_on_three_platforms_import_stdio_and_http_without_secrets() {
     for platform in [Platform::Windows, Platform::Linux, Platform::Macos] {
         for adapter in adapters::all() {
             let (app, target) = fixture(platform);
-            let mut local =
-                McpEntry::new_stdio("本地😀", "python", vec!["-y".into(), SECRET.into()]);
+            let mut local = McpEntry::new_stdio(
+                "本地😀",
+                "python",
+                vec!["-y".into(), "--password".into(), SECRET.into()],
+            );
             local.env.insert("PASSWORD".into(), SECRET.into());
             let mut remote = McpEntry::new_http(
                 "远程",
                 format!("https://user:{SECRET}@example.invalid/mcp?key={SECRET}"),
             );
             remote.auth = Some(Auth::env_ref("EXISTING_AUTH"));
-            remote.headers.insert("X-Custom".into(), SECRET.into());
+            remote.headers.insert("X-Api-Key".into(), SECRET.into());
             let path = source(
                 &app,
                 *adapter,
@@ -155,7 +158,7 @@ fn all_14_adapters_on_three_platforms_import_stdio_and_http_without_secrets() {
 #[test]
 fn conflicts_require_explicit_actions_and_preserve_unselected_entries_and_backup() {
     let (app, target) = fixture(Platform::current());
-    write(&target, "version: 1\nentries:\n  - {name: alpha, transport: stdio, command: old, args: [your_existing_secret_here], overrides: {windows: {command: old-windows}}}\n  - {name: keep, transport: stdio, command: untouched}\n");
+    write(&target, "version: 1\nentries:\n  - {name: alpha, transport: stdio, command: old, args: [--password, your_existing_secret_here], overrides: {windows: {command: old-windows}}}\n  - {name: keep, transport: stdio, command: untouched}\n");
     let before = fs::read(&target).unwrap();
     source(
         &app,
@@ -285,7 +288,7 @@ fn bindings_are_complete_strict_and_never_read_process_env_values() {
         Scope::User,
         &[(
             "alpha",
-            json!({"url":format!("https://example.invalid/{SECRET}"), "headers":{"Authorization":format!("Bearer {SECRET}"),"X-Custom":SECRET}}),
+            json!({"url":format!("https://user:{SECRET}@example.invalid/mcp"), "headers":{"Authorization":format!("Bearer {SECRET}"),"X-Api-Key":SECRET}}),
         )],
     );
     let mut sessions = ImportSessions::default();
@@ -601,7 +604,7 @@ fn jsonc_source_and_json_target_keep_unicode_and_source_comments() {
     let target = app.env.home.join("catalog.json");
     let adapter = adapters::by_id("opencode").unwrap();
     let path = app.target_path(adapter, Scope::User).unwrap();
-    let raw = "\u{feff}{ // 原始注释😀\n\"mcp\":{\"servers\":{\"中文😀\":{\"type\":\"local\",\"command\":[\"python\",\"your_secret_here_123\"],},},},}";
+    let raw = "\u{feff}{ // 原始注释😀\n\"mcp\":{\"servers\":{\"中文😀\":{\"type\":\"local\",\"command\":[\"python\",\"--password\",\"your_secret_here_123\"],},},},}";
     write(&path, raw);
     let mut sessions = ImportSessions::default();
     let scan = sessions
@@ -859,4 +862,60 @@ fn mixed_import_maps_only_credentials_and_keeps_normal_remote_settings() {
     );
     assert_eq!(catalog.entries[0].env["API_KEY"], "${ENV:EXISTING_KEY}");
     assert_eq!(catalog.entries[0].env["NODE_ENV"], "production");
+}
+
+#[test]
+fn sensitive_argument_bindings_keep_inline_flags_and_other_arguments() {
+    let (app, target) = fixture(Platform::current());
+    source(
+        &app,
+        adapters::by_id("claude-code").unwrap(),
+        Scope::User,
+        &[(
+            "local",
+            json!({"command":"npx", "args":["@scope/mcp","--token=your_token_here","--password","your_password_here","--port=8080"]}),
+        )],
+    );
+    let mut sessions = ImportSessions::default();
+    let scan = sessions
+        .scan(&app, &target, "claude-code", Scope::User)
+        .unwrap();
+    assert_eq!(
+        scan.items[0]
+            .fields
+            .iter()
+            .map(|f| f.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["/args/1", "/args/3"]
+    );
+    let preview = sessions
+        .preview(
+            &app,
+            &scan.scan_id,
+            &[ImportChoice {
+                source_name: "local".into(),
+                action: ImportAction::Add,
+                target_name: "local".into(),
+                bindings: BTreeMap::from([
+                    ("/args/1".into(), "MY_TOKEN".into()),
+                    ("/args/3".into(), "MY_PASSWORD".into()),
+                ]),
+            }],
+        )
+        .unwrap();
+    assert_eq!(
+        preview.changes[0].after["args"],
+        json!([
+            "@scope/mcp",
+            "--token=${ENV:MY_TOKEN}",
+            "--password",
+            "${ENV:MY_PASSWORD}",
+            "--port=8080"
+        ])
+    );
+    let serialized = serde_json::to_string(&preview).unwrap();
+    assert!(!serialized.contains("your_token_here") && !serialized.contains("your_password_here"));
+    sessions.commit(&app, &preview.preview_id).unwrap();
+    let (catalog, _) = app.load_catalog(&target).unwrap();
+    assert_eq!(catalog.entries[0].args[1], "--token=${ENV:MY_TOKEN}");
 }

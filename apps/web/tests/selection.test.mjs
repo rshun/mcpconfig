@@ -147,10 +147,11 @@ test("演示导入需要完整变量映射，取消和重复确认均被阻止",
   const scan = await mockCall("scan_import", { catalogPath: "C:/demo/catalog.yaml", clientId: "codex", scope: "user" });
   const choice = { sourceName: "example-mcp", action: "add", targetName: "example-mcp", bindings: {} };
   await assert.rejects(mockCall("preview_import", { scanId: scan.scanId, choices: [choice] }));
-  choice.bindings = { "/args/0": "MCP_ARG", "/env/API_KEY": "MCP_KEY" };
+  choice.bindings = { "/env/API_KEY": "MCP_KEY" };
   const preview = await mockCall("preview_import", { scanId: scan.scanId, choices: [choice], scope: "user" });
   const result = await mockCall("commit_import", { previewId: preview.previewId });
   assert.equal(result.imported, 1);
+  assert.deepEqual(preview.changes[0].after.args, ["-y", "@scope/mcp", "C:/My Documents"]);
   await assert.rejects(mockCall("commit_import", { previewId: preview.previewId }));
   const cancelled = await mockCall("scan_import", { catalogPath: "C:/demo/catalog.yaml", clientId: "codex", scope: "user" });
   await mockCall("cancel_import", { scanId: cancelled.scanId });

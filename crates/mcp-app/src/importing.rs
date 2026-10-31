@@ -311,19 +311,28 @@ impl ImportSessions {
                     .get(&field.id)
                     .filter(|name| env_name(name))
                     .ok_or_else(|| fail("环境变量名仅允许字母、数字和下划线，且不能以数字开头"))?;
+                let slot = after
+                    .pointer_mut(&field.id)
+                    .ok_or_else(|| fail("导入字段映射失效，请重新扫描"))?;
                 let value = if field.id == "/auth/token_env" {
                     env.to_string()
+                } else if field.id.starts_with("/args/")
+                    && slot
+                        .as_str()
+                        .is_some_and(|s| s.starts_with('-') && s.ends_with('='))
+                {
+                    format!("{}${{ENV:{env}}}", slot.as_str().unwrap())
                 } else {
                     format!("${{ENV:{env}}}")
                 };
-                *after
-                    .pointer_mut(&field.id)
-                    .ok_or_else(|| fail("导入字段映射失效，请重新扫描"))? = Value::String(value);
+                *slot = Value::String(value);
             }
             after["name"] = Value::String(name.into());
             let entry: McpEntry =
                 serde_json::from_value(after.clone()).map_err(|_| fail("导入结果结构无效"))?;
-            let before = existing.map(|e| hide(&serde_json::to_value(e).unwrap_or(Value::Null)));
+            let before = existing.map(|e| {
+                mcp_core::redact::config_entry(&serde_json::to_value(e).unwrap_or(Value::Null))
+            });
             catalog.entries.retain(|e| e.name != name);
             catalog.entries.push(entry);
             changes.push(ImportChange {
@@ -464,21 +473,26 @@ fn reference(value: &str) -> Option<String> {
         .or_else(|| value.strip_prefix("${").and_then(|v| v.strip_suffix('}')))?;
     env_name(name).then(|| format!("${{ENV:{name}}}"))
 }
-fn hide(value: &Value) -> Value {
-    match value {
-        Value::Object(map) => {
-            Value::Object(map.iter().map(|(k, v)| (k.clone(), hide(v))).collect())
-        }
-        Value::Array(values) => Value::Array(values.iter().map(hide).collect()),
-        Value::String(_) => Value::String("[已隐藏]".into()),
-        _ => value.clone(),
-    }
-}
-fn field(value: &mut Value, id: String, label: String, fields: &mut Vec<ImportField>) {
+fn field(
+    value: &mut Value,
+    shown: &Value,
+    id: String,
+    label: String,
+    fields: &mut Vec<ImportField>,
+) {
     if let Some(normalized) = value.as_str().and_then(reference) {
         *value = Value::String(normalized);
-    } else {
-        *value = Value::String(String::new());
+    } else if *value != *shown {
+        let prefix = if id.starts_with("/args/") {
+            value
+                .as_str()
+                .filter(|s| s.starts_with('-'))
+                .and_then(|s| s.split_once('='))
+                .map(|(flag, _)| format!("{flag}="))
+        } else {
+            None
+        };
+        *value = Value::String(prefix.unwrap_or_default());
         fields.push(ImportField { id, label });
     }
 }
@@ -518,32 +532,23 @@ fn convert(
             label: "Bearer 凭据".into(),
         });
     }
+    let shown = mcp_core::redact::config_entry(&safe);
     for key in ["command", "cwd", "url"] {
         if let Some(value) = safe.get_mut(key) {
-            if key == "command"
-                && value.as_str().is_some_and(|v| {
-                    [
-                        "python", "python3", "node", "npx", "uv", "uvx", "docker", "java", "deno",
-                        "bun", "bunx", "ruby", "go", "dotnet",
-                    ]
-                    .contains(&v)
-                })
-            {
-                continue;
-            }
-            field(value, format!("/{key}"), key.into(), &mut fields);
+            field(
+                value,
+                &shown[key],
+                format!("/{key}"),
+                key.into(),
+                &mut fields,
+            );
         }
     }
     if let Some(args) = safe.get_mut("args").and_then(Value::as_array_mut) {
         for (i, value) in args.iter_mut().enumerate() {
-            if value
-                .as_str()
-                .is_some_and(|v| ["-y", "--yes", "-u", "-m"].contains(&v))
-            {
-                continue;
-            }
             field(
                 value,
+                &shown["args"][i],
                 format!("/args/{i}"),
                 format!("参数 {}", i + 1),
                 &mut fields,
@@ -555,6 +560,7 @@ fn convert(
             for (name, value) in map {
                 field(
                     value,
+                    &shown[key][name.as_str()],
                     format!("/{key}/{}", pointer_key(name)),
                     format!("{key}.{name}"),
                     &mut fields,
