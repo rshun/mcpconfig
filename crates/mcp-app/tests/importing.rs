@@ -1012,7 +1012,7 @@ fn password_assignments_matching_scheme_names_still_require_mapping() {
         Scope::User,
         &[(
             "local",
-            json!({"command":"python","args":["PASSWORD=basic","--password","Bearer","Basic mode"]}),
+            json!({"command":"python","args":["PASSWORD=basic","--password","Bearer","Basic mode", "--password=${ENV:PASS}:your_password_suffix_here"]}),
         )],
     );
     let mut sessions = ImportSessions::default();
@@ -1025,6 +1025,6 @@ fn password_assignments_matching_scheme_names_still_require_mapping() {
             .iter()
             .map(|f| f.id.as_str())
             .collect::<Vec<_>>(),
-        vec!["/args/0", "/args/2"]
+        vec!["/args/0", "/args/2", "/args/4"]
     );
 }

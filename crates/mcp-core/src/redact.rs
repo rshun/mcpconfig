@@ -265,48 +265,118 @@ fn contains_secret(value: &str) -> bool {
     if text.contains("-----BEGIN ") && text.contains("PRIVATE KEY-----") {
         return true;
     }
-    if ["bearer ", "basic "].iter().any(|prefix| {
-        lower.starts_with(*prefix)
-            && !lower[prefix.len()..]
-                .trim_matches(|c: char| c.is_whitespace() || c == '\0')
-                .is_empty()
-    }) {
+    if lower.starts_with("bearer ")
+        && !lower[7..]
+            .trim_matches(|c: char| c.is_whitespace() || c == '\0')
+            .is_empty()
+        || lower.starts_with("basic ") && basic_credentials(text[6..].trim())
+    {
         return true;
     }
-    let mut next_sensitive = false;
+    let mut pending: Option<bool> = None;
     for part in text
         .split(|c: char| c.is_whitespace() || ['\"', '\'', ',', ';', '&', '?', '#'].contains(&c))
         .filter(|s| !s.is_empty())
     {
-        for component in part.split(['=', ':']).filter(|s| !s.is_empty()) {
-            if component == "\0" {
-                next_sensitive = false;
+        if let Some(allow_scheme) = pending.take() {
+            if allow_scheme && auth_scheme(part) {
+                pending = Some(false);
                 continue;
             }
-            if next_sensitive {
-                if component.eq_ignore_ascii_case("bearer")
-                    || component.eq_ignore_ascii_case("basic")
+            if literal(part) {
+                return true;
+            }
+            continue;
+        }
+        let mut component = part;
+        loop {
+            if key_shape(component) {
+                return true;
+            }
+            if let Some(separator) = component.find(['=', ':']) {
+                let name = &component[..separator];
+                let data = &component[separator + 1..];
+                if name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "_-".contains(c))
+                    && sensitive_name(name)
                 {
-                    continue;
+                    let authorization = authorization_name(name);
+                    if data.is_empty() {
+                        if component.as_bytes()[separator] == b':' {
+                            pending = Some(authorization);
+                        }
+                    } else if authorization && auth_scheme(data) {
+                        pending = Some(false);
+                    } else if literal(data) {
+                        return true;
+                    }
+                    break;
                 }
-                return true;
+                component = data;
+                if component.is_empty() {
+                    break;
+                }
+            } else {
+                if component.starts_with('-') && sensitive_name(component) {
+                    pending = Some(authorization_name(component));
+                }
+                break;
             }
-            if (part.contains(['=', ':']) || component.starts_with('-'))
-                && sensitive_name(component)
-            {
-                next_sensitive = true;
-            }
-            if component.len() >= 24
-                && ["sk-", "ghp_", "gho_", "github_pat_", "xoxb-", "xoxp-"]
-                    .iter()
-                    .any(|prefix| component.starts_with(*prefix))
-            {
-                return true;
-            }
-            if component.starts_with("eyJ")
-                && component.split('.').count() == 3
-                && component.len() >= 32
-            {
+        }
+    }
+    false
+}
+
+fn auth_scheme(value: &str) -> bool {
+    value.eq_ignore_ascii_case("bearer") || value.eq_ignore_ascii_case("basic")
+}
+
+fn authorization_name(name: &str) -> bool {
+    name.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_ascii_lowercase()
+        .ends_with("authorization")
+}
+
+fn key_shape(value: &str) -> bool {
+    (value.len() >= 24
+        && ["sk-", "ghp_", "gho_", "github_pat_", "xoxb-", "xoxp-"]
+            .iter()
+            .any(|prefix| value.starts_with(*prefix)))
+        || (value.starts_with("eyJ") && value.split('.').count() == 3 && value.len() >= 32)
+}
+
+// Recognize encoded user:password instead of treating ordinary text such as "Basic mode" as a secret.
+fn basic_credentials(value: &str) -> bool {
+    if value.len() < 4 || value.len() % 4 != 0 {
+        return false;
+    }
+    let payload = value.trim_end_matches('=');
+    if value.len() - payload.len() > 2
+        || !payload
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/')
+    {
+        return false;
+    }
+    let mut buffer = 0u32;
+    let mut bits = 0;
+    for byte in payload.bytes() {
+        let digit = match byte {
+            b'A'..=b'Z' => byte - b'A',
+            b'a'..=b'z' => byte - b'a' + 26,
+            b'0'..=b'9' => byte - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return false,
+        };
+        buffer = (buffer << 6) | u32::from(digit);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            if (buffer >> bits) & 0xff == u32::from(b':') {
                 return true;
             }
         }

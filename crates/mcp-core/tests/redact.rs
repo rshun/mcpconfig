@@ -69,6 +69,8 @@ fn embedded_credentials_and_encoded_query_names_are_hidden_without_hiding_plain_
         "https://example.invalid/mcp?api%5Fkey=your_api_key_here",
         "https://example.invalid/mcp?X-Amz-Signature=your_signature_here",
         "--header=Authorization: Bearer your_token_here",
+        // Base64 of the synthetic placeholder your_user_here:your_password_here.
+        "Basic eW91cl91c2VyX2hlcmU6eW91cl9wYXNzd29yZF9oZXJl",
         "TOKEN=your_token_here",
         "npx @scope/mcp --password your_password_here",
         "--value=sk-your_placeholder_key_here_123",
@@ -119,7 +121,13 @@ fn passwords_matching_auth_scheme_names_are_still_credentials() {
             "[已隐藏]"
         );
     }
-    for value in ["PASSWORD=basic", "node --password Basic", "--token=Bearer"] {
+    for value in [
+        "PASSWORD=basic",
+        "node --password Basic",
+        "--token=Bearer",
+        "--password=${ENV:PASS}:your_password_suffix_here",
+        "Authorization: Bearer Bearer",
+    ] {
         assert_eq!(config_entry(&json!({"custom":value}))["custom"], "[已隐藏]");
     }
     assert_eq!(
