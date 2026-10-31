@@ -47,7 +47,7 @@ export function DetectPage({ clients, scope, projectRoot, catalogPath, loading, 
         <button className="btn primary" disabled={!!importClient || !catalogPath || !config.existed || !config.entries.length || busy} onClick={() => setImportClient(config.clientId)}><Icon name="import" size={16} />导入到 MCP 库</button></div>
         <div className="panel-body"><div className="source-path"><span>来源文件</span><code>{config.path}</code></div><p className="field-hint">{config.entries.length} 个 MCP · 配置文件状态，不代表连接已验证</p>
           {!config.existed ? <Empty title="配置文件尚不存在" hint="可以先在 MCP 库添加配置，再应用到这个 Agent。" /> : !config.entries.length ? <Empty title="配置文件中没有 MCP 条目" /> : config.entries.map((entry) => <details className="existing-entry" key={entry.name}><summary><span className="entry-dot" />{entry.name}<span className="muted">查看配置（凭据隐藏）</span></summary><pre>{JSON.stringify(entry.config, null, 2)}</pre></details>)}
-          <div className="read-only-note"><Icon name="shield" size={16} /><span>只读查看。参数、地址、环境变量值和凭据已隐藏。导入会进入独立的选择与预览流程。</span></div>
+          <div className="read-only-note"><Icon name="shield" size={16} /><span>只读查看，普通配置正常显示，识别到的凭据已隐藏。导入会进入独立的选择与预览流程。</span></div>
         </div></section> : !error && <div className="agent-empty"><div className="welcome-symbol"><Icon name="agents" size={32} /></div><h2>选择一个 Agent，查看它的 MCP</h2><p>已有配置可以导入配置库，方便在多个 Agent 之间复用。</p></div>}
     </div></div>}
     {importClient && <Dialog title="导入到 MCP 库" wide busy={busy} onClose={() => { if (!busy) setImportClient(null); }}>

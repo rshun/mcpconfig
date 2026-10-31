@@ -27,6 +27,7 @@
 - 普通 URL（含非敏感查询参数）、包名、可执行文件路径、工作目录和参数保留原值，不需要环境变量映射。
 - `PATH`、`NODE_ENV`、`API_BASE_URL`、`Accept` 等普通环境变量/请求头直接导入；`API_KEY`、`clientSecret`、`PASSWORD`、
   Token、Cookie、私钥、认证头等按字段语义隐藏。`MAX_TOKENS`、`--tokenizer` 等名称不按 Token 凭据处理。
+  `PASSWORD_FILE`、`TOKEN_PATH`、`--token-file` 等明确表示文件或目录的字段也保留路径值；值内另含可识别凭据时仍隐藏。
 - `--password value`、`--api-key=value` 等敏感选项、Bearer/Basic 值、URL 用户认证部分和敏感查询参数
   （包括百分号编码的参数名）、私钥文本及常见凭据格式会触发隐藏。识别到凭据的字符串整体隐藏。
 - URL 或完整命令字符串内含凭据时，整个字段需要映射为完整值；独立参数只映射其值。
@@ -40,6 +41,7 @@
 已有的完整 `${VAR}`、`${ENV:VAR}`、`${env:VAR}`、`{env:VAR}` 引用会归一化，
 完整 `${HOME}`、`${PROJECT_ROOT}` 等内置上下文引用保留语义；不展开或读取进程中的变量值。
 含变量引用的普通混合字符串保留，例如 `${HOME}/tools`、`Bearer ${ENV:SERVICE_API_KEY}`；仍含敏感字面值的字符串需要映射。
+混合字符串中的 `{env:VAR}`、`${env:VAR}`、`${VAR}` 引用也归一化为 `${ENV:VAR}`，内置上下文变量保留原语义，保证后续跨 Agent 分发可解析。
 Bearer 变量的值应是令牌本体，不含 `Bearer ` 前缀。
 
 例如某参数原来含凭据，可映射为 `MCP_SERVICE_ARGUMENT`，导入后参数为 `${ENV:MCP_SERVICE_ARGUMENT}`。

@@ -50,30 +50,64 @@ fn redact(value: &Value, sensitive: bool) -> Value {
 }
 
 fn arguments(values: &[Value]) -> Value {
-    let mut next_sensitive = false;
-    let mut positional = false;
     Value::Array(
         values
             .iter()
-            .map(|value| {
-                let shown = redact(value, next_sensitive);
-                next_sensitive = false;
-                if let Some(arg) = value.as_str() {
-                    if arg == "--" {
-                        positional = true;
-                    }
-                    if !positional
-                        && arg.starts_with('-')
-                        && !arg.contains('=')
-                        && sensitive_name(arg)
-                    {
-                        next_sensitive = true;
-                    }
-                }
-                shown
-            })
+            .zip(argument_roles(values))
+            .map(|(value, role)| redact(value, role.sensitive_value))
             .collect(),
     )
+}
+
+struct ArgumentRole {
+    sensitive_value: bool,
+    inline_option: bool,
+}
+
+// A consumed credential is never interpreted again as an option or option terminator.
+fn argument_roles(values: &[Value]) -> Vec<ArgumentRole> {
+    let mut next_sensitive = false;
+    let mut positional = false;
+    values
+        .iter()
+        .map(|value| {
+            let sensitive_value = next_sensitive;
+            next_sensitive = false;
+            let mut inline_option = false;
+            if let Some(arg) = value.as_str() {
+                if !sensitive_value && arg == "--" {
+                    positional = true;
+                }
+                if !sensitive_value && !positional && arg.starts_with('-') {
+                    inline_option = arg.contains('=');
+                    next_sensitive = !inline_option && sensitive_name(arg);
+                }
+            }
+            ArgumentRole {
+                sensitive_value,
+                inline_option,
+            }
+        })
+        .collect()
+}
+
+/// Prefixes of actual inline options. Password values resembling `-value=suffix` have no prefix.
+pub fn inline_option_prefixes(values: &[Value]) -> Vec<Option<String>> {
+    values
+        .iter()
+        .zip(argument_roles(values))
+        .map(|(value, role)| {
+            role.inline_option
+                .then(|| {
+                    value
+                        .as_str()
+                        .unwrap()
+                        .split_once('=')
+                        .map(|(flag, _)| format!("{flag}="))
+                })
+                .flatten()
+        })
+        .collect()
 }
 
 fn sensitive_name(name: &str) -> bool {
@@ -92,6 +126,13 @@ fn sensitive_name(name: &str) -> bool {
     }
     let compact: String = words.chars().filter(|c| !c.is_whitespace()).collect();
     let parts: Vec<_> = words.split_whitespace().collect();
+    if parts.len() > 1
+        && parts
+            .last()
+            .is_some_and(|p| ["file", "path", "dir", "directory"].contains(p))
+    {
+        return false;
+    }
     parts.iter().any(|p| {
         [
             "password",
@@ -162,14 +203,17 @@ fn without_references(value: &str) -> String {
 
 fn literal(value: &str) -> bool {
     let text = without_references(value);
-    let text = text.trim_matches(|c: char| c.is_whitespace() || c == '\0');
+    if !text.contains('\0') {
+        return !text.trim().is_empty();
+    }
+    let text = text.trim();
     let lower = text.to_ascii_lowercase();
     let text = lower
         .strip_prefix("bearer ")
         .or_else(|| lower.strip_prefix("basic "))
         .unwrap_or(&lower)
         .trim_matches(|c: char| c.is_whitespace() || c == '\0');
-    !text.is_empty() && !["bearer", "basic"].contains(&text)
+    !text.is_empty()
 }
 
 fn percent_decode(value: &str) -> String {
@@ -193,20 +237,32 @@ fn percent_decode(value: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-fn contains_secret(value: &str) -> bool {
-    let text = without_references(value);
-    let text = percent_decode(&text);
-    let lower = text.to_ascii_lowercase();
-    if text.contains("-----BEGIN ") && text.contains("PRIVATE KEY-----") {
-        return true;
-    }
-    // Userinfo is authentication material. Keep credential-free URLs, including their query.
+fn url_credentials(text: &str) -> bool {
+    // Split raw URL boundaries before decoding: %2F/%3F in a password are not URL separators.
     if text.split("://").skip(1).any(|rest| {
         rest.split(['/', '?', '#', ' ', '\"', '\''])
             .next()
             .and_then(|authority| authority.rsplit_once('@'))
             .is_some_and(|(userinfo, _)| userinfo.chars().any(|c| c != ':' && c != '\0'))
     }) {
+        return true;
+    }
+    text.split(['?', '#']).skip(1).any(|query| {
+        query.split(['&', ';']).any(|pair| {
+            pair.split_once('=')
+                .is_some_and(|(key, value)| sensitive_name(&percent_decode(key)) && literal(value))
+        })
+    })
+}
+
+fn contains_secret(value: &str) -> bool {
+    let text = without_references(value);
+    if url_credentials(&text) {
+        return true;
+    }
+    let text = percent_decode(&text);
+    let lower = text.to_ascii_lowercase();
+    if text.contains("-----BEGIN ") && text.contains("PRIVATE KEY-----") {
         return true;
     }
     if ["bearer ", "basic "].iter().any(|prefix| {

@@ -473,27 +473,42 @@ fn reference(value: &str) -> Option<String> {
         .or_else(|| value.strip_prefix("${").and_then(|v| v.strip_suffix('}')))?;
     env_name(name).then(|| format!("${{ENV:{name}}}"))
 }
+fn normalize_references(value: &str) -> String {
+    let mut rest = value;
+    let mut out = String::with_capacity(value.len());
+    while !rest.is_empty() {
+        if rest.starts_with("${") || rest.starts_with("{env:") {
+            if let Some(end) = rest.find('}') {
+                let token = &rest[..=end];
+                out.push_str(reference(token).as_deref().unwrap_or(token));
+                rest = &rest[end + 1..];
+                continue;
+            }
+            out.push_str(rest);
+            break;
+        }
+        let ch = rest.chars().next().unwrap();
+        out.push(ch);
+        rest = &rest[ch.len_utf8()..];
+    }
+    out
+}
+
 fn field(
     value: &mut Value,
     shown: &Value,
     id: String,
     label: String,
+    inline_prefix: Option<&str>,
     fields: &mut Vec<ImportField>,
 ) {
     if let Some(normalized) = value.as_str().and_then(reference) {
         *value = Value::String(normalized);
     } else if *value != *shown {
-        let prefix = if id.starts_with("/args/") {
-            value
-                .as_str()
-                .filter(|s| s.starts_with('-'))
-                .and_then(|s| s.split_once('='))
-                .map(|(flag, _)| format!("{flag}="))
-        } else {
-            None
-        };
-        *value = Value::String(prefix.unwrap_or_default());
+        *value = Value::String(inline_prefix.unwrap_or_default().into());
         fields.push(ImportField { id, label });
+    } else if let Some(text) = value.as_str() {
+        *value = Value::String(normalize_references(text));
     }
 }
 fn pointer_key(key: &str) -> String {
@@ -540,17 +555,20 @@ fn convert(
                 &shown[key],
                 format!("/{key}"),
                 key.into(),
+                None,
                 &mut fields,
             );
         }
     }
     if let Some(args) = safe.get_mut("args").and_then(Value::as_array_mut) {
+        let prefixes = mcp_core::redact::inline_option_prefixes(args);
         for (i, value) in args.iter_mut().enumerate() {
             field(
                 value,
                 &shown["args"][i],
                 format!("/args/{i}"),
                 format!("参数 {}", i + 1),
+                prefixes[i].as_deref(),
                 &mut fields,
             );
         }
@@ -563,6 +581,7 @@ fn convert(
                     &shown[key][name.as_str()],
                     format!("/{key}/{}", pointer_key(name)),
                     format!("{key}.{name}"),
+                    None,
                     &mut fields,
                 );
             }
