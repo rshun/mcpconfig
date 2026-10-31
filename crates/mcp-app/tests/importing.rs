@@ -757,3 +757,106 @@ fn null_and_non_object_json_entries_are_blocked_without_losing_good_items() {
     assert_eq!(preview.changes.len(), 1);
     assert!(!target.exists());
 }
+
+#[test]
+fn ordinary_import_fields_need_no_bindings_and_keep_their_original_values() {
+    let (app, target) = fixture(Platform::current());
+    let raw = json!({"command":"C:/Program Files/nodejs/npx.cmd", "args":["-y","@scope/mcp","C:/My Documents","--port","8080"], "cwd":"C:/My Projects/demo", "env":{"NODE_ENV":"production","PATH":"C:/Tools"}});
+    let path = source(
+        &app,
+        adapters::by_id("claude-code").unwrap(),
+        Scope::User,
+        &[("local", raw)],
+    );
+    let original = fs::read(&path).unwrap();
+    let mut sessions = ImportSessions::default();
+    let scan = sessions
+        .scan(&app, &target, "claude-code", Scope::User)
+        .unwrap();
+    assert!(
+        scan.items[0].fields.is_empty(),
+        "ordinary values must not require environment bindings"
+    );
+    let choice = ImportChoice {
+        source_name: "local".into(),
+        action: ImportAction::Add,
+        target_name: "local".into(),
+        bindings: BTreeMap::new(),
+    };
+    let preview = sessions.preview(&app, &scan.scan_id, &[choice]).unwrap();
+    assert_eq!(preview.changes[0].after["args"][1], "@scope/mcp");
+    sessions.commit(&app, &preview.preview_id).unwrap();
+    let (catalog, _) = app.load_catalog(&target).unwrap();
+    assert_eq!(
+        catalog.entries[0].command.as_deref(),
+        Some("C:/Program Files/nodejs/npx.cmd")
+    );
+    assert_eq!(
+        catalog.entries[0].args,
+        vec!["-y", "@scope/mcp", "C:/My Documents", "--port", "8080"]
+    );
+    assert_eq!(
+        catalog.entries[0].cwd.as_deref(),
+        Some("C:/My Projects/demo")
+    );
+    assert_eq!(catalog.entries[0].env["PATH"], "C:/Tools");
+    assert_eq!(fs::read(path).unwrap(), original);
+}
+
+#[test]
+fn mixed_import_maps_only_credentials_and_keeps_normal_remote_settings() {
+    let (app, target) = fixture(Platform::current());
+    source(
+        &app,
+        adapters::by_id("claude-code").unwrap(),
+        Scope::User,
+        &[(
+            "remote",
+            json!({"url":"https://example.invalid/mcp?project=demo", "headers":{"Accept":"application/json","X-Api-Key":"your_header_key_here"}, "env":{"API_KEY":"${ENV:EXISTING_KEY}","NODE_ENV":"production"}}),
+        )],
+    );
+    let mut sessions = ImportSessions::default();
+    let scan = sessions
+        .scan(&app, &target, "claude-code", Scope::User)
+        .unwrap();
+    let ids = scan.items[0]
+        .fields
+        .iter()
+        .map(|f| f.id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, vec!["/headers/X-Api-Key"]);
+    let preview = sessions
+        .preview(
+            &app,
+            &scan.scan_id,
+            &[ImportChoice {
+                source_name: "remote".into(),
+                action: ImportAction::Add,
+                target_name: "remote".into(),
+                bindings: BTreeMap::from([(
+                    "/headers/X-Api-Key".into(),
+                    "IMPORTED_API_KEY".into(),
+                )]),
+            }],
+        )
+        .unwrap();
+    assert_eq!(
+        preview.changes[0].after["url"],
+        "https://example.invalid/mcp?project=demo"
+    );
+    assert_eq!(
+        preview.changes[0].after["headers"]["Accept"],
+        "application/json"
+    );
+    assert!(!serde_json::to_string(&preview)
+        .unwrap()
+        .contains("your_header_key_here"));
+    sessions.commit(&app, &preview.preview_id).unwrap();
+    let (catalog, _) = app.load_catalog(&target).unwrap();
+    assert_eq!(
+        catalog.entries[0].headers["X-Api-Key"],
+        "${ENV:IMPORTED_API_KEY}"
+    );
+    assert_eq!(catalog.entries[0].env["API_KEY"], "${ENV:EXISTING_KEY}");
+    assert_eq!(catalog.entries[0].env["NODE_ENV"], "production");
+}
