@@ -119,4 +119,11 @@ fn passwords_matching_auth_scheme_names_are_still_credentials() {
             "[已隐藏]"
         );
     }
+    for value in ["PASSWORD=basic", "node --password Basic", "--token=Bearer"] {
+        assert_eq!(config_entry(&json!({"custom":value}))["custom"], "[已隐藏]");
+    }
+    assert_eq!(
+        config_entry(&json!({"args":["Basic mode"]}))["args"][0],
+        "Basic mode"
+    );
 }

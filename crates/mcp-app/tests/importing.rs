@@ -1002,3 +1002,29 @@ fn a_password_value_that_looks_like_an_inline_flag_is_mapped_in_full() {
     );
     assert_eq!(preview.changes[0].after["args"][1], "${ENV:IMPORT_VALUE_0}");
 }
+
+#[test]
+fn password_assignments_matching_scheme_names_still_require_mapping() {
+    let (app, target) = fixture(Platform::current());
+    source(
+        &app,
+        adapters::by_id("claude-code").unwrap(),
+        Scope::User,
+        &[(
+            "local",
+            json!({"command":"python","args":["PASSWORD=basic","--password","Bearer","Basic mode"]}),
+        )],
+    );
+    let mut sessions = ImportSessions::default();
+    let scan = sessions
+        .scan(&app, &target, "claude-code", Scope::User)
+        .unwrap();
+    assert_eq!(
+        scan.items[0]
+            .fields
+            .iter()
+            .map(|f| f.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["/args/0", "/args/2"]
+    );
+}
