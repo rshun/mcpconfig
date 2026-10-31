@@ -7,8 +7,8 @@ from publish_release import checksums, digest, expected_names, prepare, verify_a
 
 
 class ReleaseTests(unittest.TestCase):
-    def candidate(self, legacy=False):
-        files = {name: name.encode() for name in expected_names('0.1.0')}
+    def candidate(self, legacy=False, version='0.1.0'):
+        files = {name: name.encode() for name in expected_names(version)}
         if legacy:
             files = {name.replace('MCP.Hub_', 'MCP Hub_'): data for name, data in files.items()}
         return {**files, 'SHA256SUMS': checksums(files)}
@@ -64,6 +64,30 @@ class ReleaseTests(unittest.TestCase):
         release['draft'] = False
         with self.assertRaises(ValueError):
             prepare(self.candidate(), '0.1.0', release)
+
+    def test_portable_gui_is_required_from_v041_and_legacy_versions_are_unchanged(self):
+        portable = 'MCP.Hub_0.4.1_windows-x64-portable.zip'
+        self.assertEqual(len(expected_names('0.4.0')), 6)
+        self.assertIn(portable, expected_names('0.4.1'))
+        candidate = self.candidate(version='0.4.1')
+        files, backup = prepare(candidate, '0.4.1', None)
+        self.assertFalse(backup)
+        self.assertEqual(len(files), 8)
+        self.assertEqual(files[portable], candidate[portable])
+        partial = {name: data for name, data in files.items() if name != 'SHA256SUMS'}
+        resumed, _ = prepare(candidate, '0.4.1', self.release(partial))
+        self.assertEqual(resumed, files)
+
+    def test_missing_or_corrupt_portable_gui_is_rejected_before_publication(self):
+        candidate = self.candidate(version='0.4.1')
+        portable = 'MCP.Hub_0.4.1_windows-x64-portable.zip'
+        missing = {name: data for name, data in candidate.items() if name not in {portable, 'SHA256SUMS'}}
+        missing['SHA256SUMS'] = checksums(missing)
+        with self.assertRaises(ValueError):
+            prepare(missing, '0.4.1', None)
+        corrupt = dict(candidate, **{portable: b'corrupt'})
+        with self.assertRaises(ValueError):
+            prepare(corrupt, '0.4.1', None)
 
     def test_missing_digest_or_incomplete_upload_is_rejected(self):
         files = {'asset': b'content'}

@@ -216,6 +216,10 @@ jobs:
           name = f"MCP.Hub_{os.environ['RELEASE_VERSION']}_{os.environ['RELEASE_SUFFIX']}"
           shutil.copy2(matches[0], output / name)
           PY
+      - name: Package and verify Windows portable GUI
+        if: matrix.platform == 'windows-x64'
+        shell: bash
+        run: python scripts/package_windows_portable.py --binary "target/$BUILD_TARGET/release/mcp-desktop.exe" --output release-assets --version "$RELEASE_VERSION"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: binary-gui-${{ matrix.platform }}
@@ -240,15 +244,12 @@ jobs:
         run: |
           python - <<'PY'
           import hashlib, os, pathlib, shutil
+          from scripts.publish_release import expected_names
 
           version = os.environ['RELEASE_VERSION']
           output = pathlib.Path('release-assets')
           shutil.copy2('examples/customer-mcp.yaml', output / 'customer-mcp.yaml')
-          expected = {
-              f'mcp-hub-v{version}-linux-x64.tar.gz', f'mcp-hub-v{version}-windows-x64.zip',
-              f'mcp-hub-v{version}-macos-arm64.tar.gz', f'MCP.Hub_{version}_x64-setup.exe',
-              f'MCP.Hub_{version}_aarch64.dmg', 'customer-mcp.yaml',
-          }
+          expected = expected_names(version)
           if {p.name for p in output.iterdir()} != expected:
               raise SystemExit('Release asset set does not match the expected platforms')
           lines = [f"{hashlib.sha256((output / name).read_bytes()).hexdigest()}  {name}\n" for name in sorted(expected)]

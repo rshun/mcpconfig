@@ -12,7 +12,7 @@ def digest(data):
 
 
 def expected_names(version):
-    return {
+    names = {
         f'mcp-hub-v{version}-linux-x64.tar.gz',
         f'mcp-hub-v{version}-windows-x64.zip',
         f'mcp-hub-v{version}-macos-arm64.tar.gz',
@@ -20,6 +20,10 @@ def expected_names(version):
         f'MCP.Hub_{version}_aarch64.dmg',
         'customer-mcp.yaml',
     }
+    # Keep historical candidates resumable with their original six-payload schema.
+    if tuple(int(part) for part in version.split('.')) >= (0, 4, 1):
+        names.add(f'MCP.Hub_{version}_windows-x64-portable.zip')
+    return names
 
 
 def checksums(files):
