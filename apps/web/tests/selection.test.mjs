@@ -35,11 +35,11 @@ test("不同客户端的单元格选择完整传入预览和写入 IPC，不扩�
   };
   calls.length = 0;
   await api.plan(request);
-  await api.apply(request, false);
+  await api.apply(request, false, "preview-test");
   assert.deepEqual(request.selection, { "claude-code": ["filesystem"], codex: ["context7"] });
   assert.deepEqual(calls, [
     { command: "plan", args: request },
-    { command: "apply", args: { ...request, dryRun: false } },
+    { command: "apply", args: { ...request, dryRun: false, previewId: "preview-test" } },
   ]);
 });
 
@@ -50,7 +50,7 @@ test("空选择在预览与写入 IPC 中保持为空", async () => {
   };
   calls.length = 0;
   await api.plan(request);
-  await api.apply(request, true);
+  await api.apply(request, true, "preview-empty");
   assert.deepEqual(calls.map(({ args }) => args.selection), [{}, {}]);
   assert.equal(calls[1].args.dryRun, true);
 });
@@ -75,7 +75,7 @@ test("浏览器演示的差异与写入也只涉及逐客户端选中的 MCP", a
   assert.doesNotMatch(claude.diff, /context7|stockdb/);
   assert.match(codex.diff, /context7/);
   assert.doesNotMatch(codex.diff, /filesystem|stockdb/);
-  const receipt = await mockCall("apply", args);
+  const receipt = await mockCall("apply", { ...args, previewId: plan.previewId });
   assert.equal(receipt.written, plan.writable);
   assert.deepEqual(receipt.outcomes.map((file) => file.clientId), plan.files.map((file) => file.clientId));
 });
@@ -85,7 +85,7 @@ test("浏览器演示的空映射和空条目列表均不生成文件或备份",
     const args = { scope: "user", selection };
     const plan = await mockCall("plan", args);
     assert.deepEqual(plan.files, []);
-    const receipt = await mockCall("apply", args);
+    const receipt = await mockCall("apply", { ...args, previewId: plan.previewId });
     assert.equal(receipt.written, 0);
     assert.equal(receipt.backupId, null);
     assert.deepEqual(receipt.outcomes, []);
@@ -180,4 +180,24 @@ test('键值编辑保留逗号、等号、空格、空值并拒绝重复和无�
   assert.throws(() => pairMap([{ key: 'A', value: 'x' }, { key: 'A', value: 'y' }]), /重复/);
   assert.throws(() => pairMap([{ key: 'Authorization', value: 'x' }, { key: 'authorization', value: 'y' }], true), /重复/);
   assert.deepEqual(pairMap([{ key: '__proto__', value: 'safe_value' }], true), JSON.parse('{"__proto__":"safe_value"}'));
+});
+
+test('分发确认必须携带预览 ID，取消、旧预览、篡改和重复确认均被拒绝', async () => {
+  calls.length = 0;
+  await api.cancelPlan('preview-cancelled');
+  assert.deepEqual(calls, [{ command: 'cancel_plan', args: { previewId: 'preview-cancelled' } }]);
+  const args = { scope: 'user', selection: { codex: ['filesystem'] } };
+  await assert.rejects(mockCall('apply', args), /重新预览/);
+  let plan = await mockCall('plan', args);
+  await mockCall('cancel_plan', { previewId: plan.previewId });
+  await assert.rejects(mockCall('apply', { ...args, previewId: plan.previewId }), /重新预览/);
+  plan = await mockCall('plan', args);
+  const newer = await mockCall('plan', args);
+  await mockCall('cancel_plan', { previewId: plan.previewId });
+  await assert.rejects(mockCall('apply', { ...args, previewId: plan.previewId }), /重新预览/);
+  await mockCall('apply', { ...args, previewId: newer.previewId });
+  await assert.rejects(mockCall('apply', { ...args, previewId: newer.previewId }), /重新预览/);
+  plan = await mockCall('plan', args);
+  await assert.rejects(mockCall('apply', { ...args, mode: 'replace', previewId: plan.previewId }), /变化/);
+  await assert.rejects(mockCall('apply', { ...args, previewId: plan.previewId }), /重新预览/);
 });

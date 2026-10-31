@@ -4,7 +4,7 @@
 
 把一份客户自维护的清单，按各客户端的原生格式写入 14 个 MCP 客户端——不用手工配 M×N×K 次。
 
-当前版本：**v0.4.0**。本版采用配置库优先的正式 GUI，使用方法与回退见 [发布说明](docs/releases/v0.4.0.md)。
+当前版本：**v0.4.1**。本版修复分发预览与确认的一致性，并提供 Windows GUI 免安装 ZIP，使用及回退见 [发布说明](docs/releases/v0.4.1.md)。
 
 ## 现在的状态
 
@@ -54,6 +54,12 @@ cargo run -p mcp-io --example end_to_end
 
 ## 图形界面
 
+Windows 用户可下载 [GUI 安装程序](https://github.com/rshun/mcpconfig/releases/download/v0.4.1/MCP.Hub_0.4.1_x64-setup.exe)，
+或 [GUI 免安装 ZIP](https://github.com/rshun/mcpconfig/releases/download/v0.4.1/MCP.Hub_0.4.1_windows-x64-portable.zip)。
+ZIP 完整解压后运行 `MCP.Hub.exe`；它使用系统已有的 [Microsoft WebView2 Runtime](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)，缺少时需先安装运行时。
+配置与备份仍使用用户目录，详见 [免安装说明](docs/WINDOWS-PORTABLE.txt)。`mcp-hub-v*-windows-x64.zip` 是独立 CLI 包。
+
+
 ```bash
 cd apps/web
 npm install
@@ -96,6 +102,11 @@ npm --prefix apps/web run tauri dev     # 需 rustc >= 1.90
 预览与写入只处理这两个配对，不会向两个客户端同时分发两条配置。
 空选择不写入；修改勾选、作用域、覆盖模式或重新加载清单后，需要重新生成预览。
 未选中的已有 MCP 条目会保留，CLI 不指定条目选择时仍按原有方式处理清单。
+
+从 v0.4.1 起提供分发一致性保护：确认必须使用后端签发的一次性预览 ID。配置库、目标文件、路径、设置、上下文或最终解析计划变化时，
+整批停止写入并要求重新预览；新预览、取消、过期和确认尝试都会使旧令牌失效。拒绝原因在预览弹窗内显示，旧确认按钮会移除。
+快照原文仅留在后端内存，预览有效期 10 分钟、单文件上限 4 MiB。CLI 即时命令保持原语义，旧 GUI 确认 IPC 不可绕过 ID 校验。
+v0.4.0 及更早版本不含这些保护。详细范围和跨进程竞争限制见 [一致性说明](docs/SAFETY.md#分发预览与确认一致性)。
 
 所有测试与构建放在 GitHub Actions，本地不运行。`CI` 验证 Windows/Linux Rust 测试、前端单元测试、
 TypeScript 与 Vite 构建、Chrome 真实交互流程、Windows Tauri 编译及原生命令单元测试。

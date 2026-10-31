@@ -5,13 +5,15 @@ import type { FileDto, MergeMode, PlanDto } from "../types";
 function DiffBody({ file }: { file: FileDto }) {
   return <pre className="diff-body">{file.diff.split("\n").map((line, index) => <div key={index} className={`diff-line ${line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : "ctx"}`}>{line || " "}</div>)}</pre>;
 }
-export function DiffPage({ plan, applying, onApply, onBack, mode, onModeChange, onReplan, planning }: {
+export function DiffPage({ plan, error, applying, onApply, onBack, mode, onModeChange, onReplan, planning }: {
+  error?: string | null;
   plan: PlanDto | null; applying: boolean; onApply: () => void; onBack: () => void; mode: MergeMode;
   onModeChange: (mode: MergeMode) => void; onReplan: () => void; planning: boolean;
 }) {
   const writable = plan?.files.filter((file) => file.willWrite && !file.blocked) ?? [];
   const blocked = plan?.files.filter((file) => file.blocked) ?? [];
   return <section className="preview-page" aria-label="分发变更预览">
+    {error && <Banner tone="danger">{error}</Banner>}
     <div className="preview-intro"><span className="preview-symbol"><Icon name="shield" size={23} /></span><div><h3>先核对影响，再确认写入</h3><p>只处理勾选的配置，其他条目保持不变。实际写入前会备份原文。</p></div></div>
     <details className="preview-options"><summary>写入策略：{mode === "merge" ? "字段合并" : "整条替换"}</summary><label className="field-label">处理同名 MCP<select className="select" aria-label="预览写入策略" value={mode} disabled={applying || planning} onChange={(event) => onModeChange(event.target.value as MergeMode)}><option value="merge">字段合并 · 保留其他字段</option><option value="replace">整条替换 · 未选中的条目保留</option></select></label><p className="field-hint">策略变更后需要重新生成预览。</p></details>
     {!plan ? <div className="welcome-state compact"><h3>需要重新预览</h3><p>选择或写入策略已变化，旧预览不能用于确认。</p><button className="btn primary" disabled={planning} onClick={onReplan}>{planning ? "正在生成…" : "重新生成预览"}</button></div> : <>

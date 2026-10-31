@@ -1,0 +1,36 @@
+MCP Hub @VERSION@ — Windows x64 GUI 免安装版
+
+使用方法
+1. 将整个 ZIP 解压到可写目录，不要直接在压缩包内运行。
+2. 打开 MCP.Hub.exe，即可使用图形界面。README.txt 和 examples 是说明与示例。
+3. 从已有 Agent 导入，或在“我的 MCP”手动添加，再选择目标、预览并确认写入。
+
+运行前提
+本程序使用 Microsoft Edge WebView2 Runtime。电脑需要已经安装该运行时；
+若提示缺少 WebView2，请从微软官方页面获取 Evergreen x64 Runtime：
+https://developer.microsoft.com/microsoft-edge/webview2/
+运行时分发说明：
+https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution
+ZIP 不会自动下载或安装运行时。系统已有运行时时，解压后即可运行。
+本包来自与 GUI 安装程序相同的发布构建，不包含 Node.js 或 Rust 开发环境。
+
+数据与升级
+配置库、settings.json 和默认备份继续保存在当前用户的 .mcp-hub 目录，
+Windows 通常为 %USERPROFILE%\.mcp-hub；自定义位置按软件设置使用。
+免安装指无需安装 MCP Hub，数据仍在用户目录，并非随 ZIP 目录迁移。
+它与安装版共用用户配置；更新或切换版本前请先关闭已运行的 MCP Hub。
+升级时可将新版 ZIP 解压到新目录并运行，保留原用户数据和备份。
+
+校验与限制
+请使用 GitHub Release 的 SHA256SUMS 校验下载的 ZIP。
+本包未签名，Windows 可能显示未知发布者提示。请核对来源和校验值后使用。
+预览后配置、路径、设置或最终解析计划变化时，确认会被阻止，需重新预览。
+不提供跨进程文件锁，请避免其他软件同时修改配置。
+
+回退
+关闭程序后运行旧版目录或重新安装旧版，保留用户配置库、设置和备份。
+不要同时启动多个版本。需要恢复配置内容时，先另存后续编辑，再核对备份恢复。
+回退至 v0.4.0 会失去本版新增的分发预览一致性保护。
+
+发布与使用说明
+https://github.com/rshun/mcpconfig/releases/tag/v@VERSION@

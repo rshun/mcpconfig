@@ -113,6 +113,7 @@ export interface SkippedDto {
   reason: string;
 }
 export interface PlanDto {
+  previewId: string;
   entryCount: number;
   issues: string[];
   missingVars: string[];

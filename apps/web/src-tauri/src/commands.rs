@@ -3,9 +3,9 @@
 //! 这里不写业务逻辑；换宿主（Electron / Web）只需重写这一层。
 
 use crate::dto::{
-    AppInfoDto, BackupDto, CatalogDto, ClientDto, ExistingConfigDto, FileDto, MatrixDto, PlanDto,
-    ReceiptDto, SkippedDto,
+    AppInfoDto, BackupDto, CatalogDto, ClientDto, ExistingConfigDto, MatrixDto, PlanDto, ReceiptDto,
 };
+use mcp_app::distribution::DistributionSessions;
 use mcp_app::importing::{ImportChoice, ImportPreview, ImportResult, ImportScan, ImportSessions};
 use mcp_app::settings::GuiSettings;
 use mcp_app::{App, PlanRequest};
@@ -18,6 +18,7 @@ fn app() -> App {
 }
 
 type Imports<'a> = tauri::State<'a, std::sync::Mutex<ImportSessions>>;
+type Previews<'a> = tauri::State<'a, std::sync::Mutex<DistributionSessions>>;
 
 #[tauri::command]
 pub fn scan_import(
@@ -273,7 +274,12 @@ pub fn plan(
     mode: String,
     allow_comment_strip: bool,
     project_root: Option<String>,
+    previews: Previews<'_>,
 ) -> Result<PlanDto, String> {
+    let mut previews = previews
+        .lock()
+        .map_err(|_| "分发预览状态不可用，请重启软件".to_string())?;
+    previews.invalidate();
     let a = context(parse_scope(&scope)?, project_root)?;
     let mut req = PlanRequest::new(catalog_path);
     req.scope = parse_scope(&scope)?;
@@ -281,23 +287,11 @@ pub fn plan(
     req.allow_comment_strip = allow_comment_strip;
     req.selection = Some(selection);
 
-    let out = a.plan(&req).map_err(err)?;
-    let writable = out.writable();
-    Ok(PlanDto {
-        entry_count: out.entry_count,
-        issues: out.catalog_issues,
-        missing_vars: out.missing_vars,
-        skipped: out
-            .skipped
-            .into_iter()
-            .map(|(client_id, reason)| SkippedDto { client_id, reason })
-            .collect(),
-        files: out.plans.into_iter().map(FileDto::from).collect(),
-        writable,
-    })
+    let (preview_id, out) = previews.preview(&a, &req).map_err(err)?;
+    Ok(PlanDto::from((preview_id, out)))
 }
 
-/// 应用：重新计算并写入（不做隐式确认，前端负责让用户点确认）。
+/// 确认：校验一次性预览，再写入后端保留的原始计划。不接受无预览 ID 的写入。
 #[tauri::command]
 pub fn apply(
     catalog_path: String,
@@ -307,17 +301,38 @@ pub fn apply(
     allow_comment_strip: bool,
     dry_run: bool,
     project_root: Option<String>,
+    preview_id: String,
+    previews: Previews<'_>,
 ) -> Result<ReceiptDto, String> {
-    let a = context(parse_scope(&scope)?, project_root)?;
-    let mut req = PlanRequest::new(catalog_path);
-    req.scope = parse_scope(&scope)?;
-    req.mode = parse_mode(&mode)?;
-    req.allow_comment_strip = allow_comment_strip;
-    req.selection = Some(selection);
+    let mut previews = previews
+        .lock()
+        .map_err(|_| "分发预览状态不可用，请重启软件".to_string())?;
+    let result = (|| {
+        let a = context(parse_scope(&scope)?, project_root)?;
+        let mut req = PlanRequest::new(catalog_path);
+        req.scope = parse_scope(&scope)?;
+        req.mode = parse_mode(&mode)?;
+        req.allow_comment_strip = allow_comment_strip;
+        req.selection = Some(selection);
+        previews
+            .commit(&a, &req, &preview_id, dry_run)
+            .map(ReceiptDto::from)
+            .map_err(err)
+    })();
+    // 包括上下文构造失败：确认失败后也必须重新预览。
+    if result.is_err() {
+        previews.cancel(&preview_id);
+    }
+    result
+}
 
-    let out = a.plan(&req).map_err(err)?;
-    let receipt = a.apply(&out.plans, dry_run).map_err(err)?;
-    Ok(ReceiptDto::from(receipt))
+#[tauri::command]
+pub fn cancel_plan(preview_id: String, previews: Previews<'_>) -> Result<(), String> {
+    previews
+        .lock()
+        .map_err(|_| "分发预览状态不可用，请重启软件".to_string())?
+        .cancel(&preview_id);
+    Ok(())
 }
 
 /// 备份列表。
