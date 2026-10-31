@@ -72,6 +72,8 @@ fn embedded_credentials_and_encoded_query_names_are_hidden_without_hiding_plain_
         // Base64 of the synthetic placeholder your_user_here:your_password_here.
         "Basic eW91cl91c2VyX2hlcmU6eW91cl9wYXNzd29yZF9oZXJl",
         "TOKEN=your_token_here",
+        "-Dservice.password=your_password_here",
+        "java -Dservice.apiKey=your_api_key_here Main",
         "npx @scope/mcp --password your_password_here",
         "--value=sk-your_placeholder_key_here_123",
     ] {
