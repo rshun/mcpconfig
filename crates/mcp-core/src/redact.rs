@@ -298,7 +298,7 @@ fn contains_secret(value: &str) -> bool {
                 let data = &component[separator + 1..];
                 if name
                     .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || "_-".contains(c))
+                    .all(|c| c.is_ascii_alphanumeric() || "_-.".contains(c))
                     && sensitive_name(name)
                 {
                     let authorization = authorization_name(name);
