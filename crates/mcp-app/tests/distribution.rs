@@ -209,7 +209,7 @@ fn changing_any_target_including_unchanged_or_blocked_files_prevents_other_write
         let mut sessions = DistributionSessions::default();
         let path = target(&app, "claude-code", req.scope);
         if kind == "unchanged" {
-            write(&path, r#"{"mcpServers":{"alpha":{"command":"python"}}}"#);
+            write(&path, r#"{"mcpServers":{"alpha":{"command":"python","type":"stdio"}}}"#);
         }
         if kind == "blocked" {
             write(&path, "{ invalid your_preview_secret_here");
