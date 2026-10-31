@@ -4,7 +4,7 @@
 
 把一份客户自维护的清单，按各客户端的原生格式写入 14 个 MCP 客户端——不用手工配 M×N×K 次。
 
-当前版本：**v0.4.1**。本版修复分发预览与确认的一致性，并提供 Windows GUI 免安装 ZIP，使用及回退见 [发布说明](docs/releases/v0.4.1.md)。
+当前版本：**v0.4.2**。本版细化脱敏和导入规则，普通配置正常显示并直接导入，保留 Windows GUI 免安装 ZIP。使用及回退见 [发布说明](docs/releases/v0.4.2.md)。
 
 ## 现在的状态
 
@@ -54,8 +54,8 @@ cargo run -p mcp-io --example end_to_end
 
 ## 图形界面
 
-Windows 用户可下载 [GUI 安装程序](https://github.com/rshun/mcpconfig/releases/download/v0.4.1/MCP.Hub_0.4.1_x64-setup.exe)，
-或 [GUI 免安装 ZIP](https://github.com/rshun/mcpconfig/releases/download/v0.4.1/MCP.Hub_0.4.1_windows-x64-portable.zip)。
+Windows 用户可下载 [GUI 安装程序](https://github.com/rshun/mcpconfig/releases/download/v0.4.2/MCP.Hub_0.4.2_x64-setup.exe)，
+或 [GUI 免安装 ZIP](https://github.com/rshun/mcpconfig/releases/download/v0.4.2/MCP.Hub_0.4.2_windows-x64-portable.zip)。
 ZIP 完整解压后运行 `MCP.Hub.exe`；它使用系统已有的 [Microsoft WebView2 Runtime](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)，缺少时需先安装运行时。
 配置与备份仍使用用户目录，详见 [免安装说明](docs/WINDOWS-PORTABLE.txt)。`mcp-hub-v*-windows-x64.zip` 是独立 CLI 包。
 
@@ -123,7 +123,7 @@ TypeScript 与 Vite 构建、Chrome 真实交互流程、Windows Tauri 编译及
 多个候选存在时读取第一个；优先文件损坏时报告错误，不会自动换读其他文件。
 
 查看入口只读，不会修改 Agent 配置、产生备份或启动 MCP 服务。点击「导入到 MCP 库」可进入独立的扫描、冲突处理和预览流程。
-当前 dev 分支按字段和参数语义脱敏：普通 URL、包名、目录、参数和非敏感环境变量/请求头正常显示；
+v0.4.2 起按字段和参数语义脱敏：普通 URL、包名、目录、参数和非敏感环境变量/请求头正常显示；
 识别到的密钥、Token、密码、认证头及含凭据的地址在后端隐藏。已有变量引用保留。隐藏后的详情不用于直接复制配置。
 项目级路径使用顶部明确选定的项目目录；未选择有效目录时阻止读取和写入，不支持的作用域不可读取。
 切换 Agent、刷新或切换作用域后，旧请求不会覆盖当前查看结果。
