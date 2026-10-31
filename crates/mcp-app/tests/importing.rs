@@ -919,3 +919,56 @@ fn sensitive_argument_bindings_keep_inline_flags_and_other_arguments() {
     let (catalog, _) = app.load_catalog(&target).unwrap();
     assert_eq!(catalog.entries[0].args[1], "--token=${ENV:MY_TOKEN}");
 }
+
+#[test]
+fn mixed_client_variable_references_are_normalized_without_mapping_or_resolution() {
+    let (app, target) = fixture(Platform::current());
+    source(
+        &app,
+        adapters::by_id("opencode").unwrap(),
+        Scope::User,
+        &[
+            (
+                "local",
+                json!({"type":"local","command":["python","--root=${env:ROOT}/tools","{env:ROOT}/data"],"cwd":"${env:ROOT}/work","environment":{"CONFIG":"{env:ROOT}/cfg"}}),
+            ),
+            (
+                "remote",
+                json!({"type":"remote", "url":"https://example.invalid/{env:HOST}/mcp"}),
+            ),
+        ],
+    );
+    let mut sessions = ImportSessions::default();
+    let scan = sessions
+        .scan(&app, &target, "opencode", Scope::User)
+        .unwrap();
+    assert!(scan
+        .items
+        .iter()
+        .all(|i| i.fields.is_empty() && i.blocked.is_none()));
+    let choices = scan
+        .items
+        .iter()
+        .map(|i| choice(&scan, &i.name, ImportAction::Add, &i.name))
+        .collect::<Vec<_>>();
+    let preview = sessions.preview(&app, &scan.scan_id, &choices).unwrap();
+    sessions.commit(&app, &preview.preview_id).unwrap();
+    let (catalog, _) = app.load_catalog(&target).unwrap();
+    let local = catalog.entries.iter().find(|e| e.name == "local").unwrap();
+    assert_eq!(
+        local.args,
+        vec!["--root=${ENV:ROOT}/tools", "${ENV:ROOT}/data"]
+    );
+    assert_eq!(local.cwd.as_deref(), Some("${ENV:ROOT}/work"));
+    assert_eq!(local.env["CONFIG"], "${ENV:ROOT}/cfg");
+    assert_eq!(
+        catalog
+            .entries
+            .iter()
+            .find(|e| e.name == "remote")
+            .unwrap()
+            .url
+            .as_deref(),
+        Some("https://example.invalid/${ENV:HOST}/mcp")
+    );
+}

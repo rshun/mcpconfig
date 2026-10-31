@@ -62,6 +62,9 @@ fn sensitive_changes_stay_visible_without_exposing_old_or_new_credentials() {
 fn embedded_credentials_and_encoded_query_names_are_hidden_without_hiding_plain_urls() {
     for value in [
         "https://user:your_password_here@example.invalid/mcp",
+        "https://user:your_password%2Fhere@example.invalid/mcp",
+        "https://user:your_password%3Fhere@example.invalid/mcp",
+        "https://example.invalid/mcp?token=%26",
         "https://example.invalid/mcp?access_token=your_token_here",
         "https://example.invalid/mcp?api%5Fkey=your_api_key_here",
         "https://example.invalid/mcp?X-Amz-Signature=your_signature_here",
@@ -95,5 +98,15 @@ fn existing_references_and_mixed_non_secret_text_are_kept_without_resolving_valu
     assert_eq!(
         config_entry(&json!({"env":{"API_KEY":"prefix-${ENV:MY_KEY}"}}))["env"]["API_KEY"],
         "[已隐藏]"
+    );
+}
+
+#[test]
+fn credential_file_paths_and_consumed_flag_values_do_not_hide_ordinary_values() {
+    let value = json!({"env":{"PASSWORD_FILE":"C:/My Secrets/password.txt", "TOKEN_PATH":"/home/me/token"}, "args":["--token-file","C:/token.txt"]});
+    assert_eq!(config_entry(&value), value);
+    assert_eq!(
+        config_entry(&json!({"args":["--password","--token","8080"]}))["args"],
+        json!(["--password", "[已隐藏]", "8080"])
     );
 }
