@@ -46,7 +46,7 @@ export function Workbench({ matrix, entries, clients, selected, onToggle, onPlan
         <p className="muted">{view === "mcp" ? entry?.description || "从一份配置库分发到多个 Agent" : "只为当前 Agent 勾选需要写入的 MCP。每组勾选独立保存。"}</p>
         {view === "mcp" && <><div className="detail-facts"><span>连接方式<b>{row.transport}</b></span><span>配置范围<b>{row.scope === "user" ? "全局配置" : "项目配置"}</b></span></div>
           <div className="detail-note"><b>分发流程</b><p>1. 在右侧勾选目标 Agent</p><p>2. 预览逐文件差异与路径</p><p>3. 确认写入，自动保留原文备份</p></div>
-          <p className="muted">地址、参数及凭据请在配置库编辑器中核对；工作台不展开敏感内容。</p></>}
+          <p className="muted">预览可核对地址、目录及参数；识别到的凭据会隐藏。</p></>}
         {view === "agent" && <div className="target-list">{rows.map((r) => {
           const cell = r.cells.find((c) => c.clientId === target?.id);
           if (!cell || !target) return null;

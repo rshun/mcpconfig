@@ -269,7 +269,7 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
     case "scan_import": {
       const scan: ImportScan = { scanId: `demo-scan-${++importSerial}`, sourcePath: `~/${args?.clientId}/mcp.json`, catalogPath: String(args?.catalogPath), catalogExists: true,
         items: [{ name: "example-mcp", transport: "stdio", conflict: ENTRIES.some((entry) => entry.name === "example-mcp"), blocked: null,
-          fields: [{ id: "/args/0", label: "参数 1" }, { id: "/env/API_KEY", label: "env.API_KEY" }] }] };
+          fields: [{ id: "/env/API_KEY", label: "env.API_KEY" }] }] };
       importScans.set(scan.scanId, scan); return scan as T;
     }
     case "cancel_import": {
@@ -289,7 +289,7 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
         if (choice.action === "replace" ? !exists : exists) throw new Error("目标名称冲突，请重新处理");
         return { sourceName: choice.sourceName, targetName: choice.targetName, action: choice.action,
           before: choice.action === "replace" ? { command: "[已隐藏]" } : null,
-          after: { name: choice.targetName, transport: "stdio", command: "python", args: [`\${ENV:${choice.bindings['/args/0']}}`], env: { API_KEY: `\${ENV:${choice.bindings['/env/API_KEY']}}` }, scope } };
+          after: { name: choice.targetName, transport: "stdio", command: "python", args: ["-y", "@scope/mcp", "C:/My Documents"], env: { API_KEY: `\${ENV:${choice.bindings['/env/API_KEY']}}` }, scope } };
       });
       const preview = { previewId: `demo-preview-${++importSerial}`, scanId: scan.scanId, scope, catalogPath: scan.catalogPath, changes };
       importPreviews.set(preview.previewId, preview); return preview as T;
@@ -346,7 +346,7 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
         clientId: client[0], clientName: client[1], scope,
         path: `~/${client[0]}/mcp.json`, format: client[3], existed: true,
         entries: [{ name: "example-mcp", config: {
-          command: "python", args: ["[已隐藏]"], env: { API_KEY: "[已隐藏]" },
+          command: "npx", args: ["-y", "@scope/mcp", "C:/My Documents"], env: { API_KEY: "[已隐藏]" },
         } }],
       } as T;
     }

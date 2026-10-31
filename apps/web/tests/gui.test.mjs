@@ -141,7 +141,7 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
           case "scan_import": return { scanId: `scan-${window.testCalls.length}`, sourcePath: "C:/test/source/config.toml", catalogPath: args.catalogPath, catalogExists: true,
             items: [
               { name: "alpha", conflict: true, blocked: null, transport: "http", fields: [{ id: "/auth/token_env", label: "Bearer 凭据" }] },
-              { name: "new-mcp", conflict: false, blocked: null, transport: "stdio", fields: [{ id: "/args/0", label: "参数 1" }] },
+              { name: "new-mcp", conflict: false, blocked: null, transport: "stdio", fields: [] },
               { name: "unsupported", conflict: false, blocked: "包含无法无损转换的字段", transport: null, fields: [] },
             ] };
           case "preview_import": {
@@ -149,7 +149,7 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
             window.importPreview = { previewId: `preview-${window.testCalls.length}`, catalogPath: "C:/test/catalog.yaml",
               changes: args.choices.filter((choice) => choice.action !== "skip").map((choice) => ({ sourceName: choice.sourceName, targetName: choice.targetName, action: choice.action,
                 before: choice.action === "replace" ? { command: "[已隐藏]", args: ["[已隐藏]"] } : null,
-                after: { name: choice.targetName, transport: "stdio", command: "python", args: Object.values(choice.bindings).map((name) => `\${ENV:${name}}`) },
+                after: { name: choice.targetName, transport: "stdio", command: "python", args: ["-y", "@scope/mcp", "C:/My Documents", ...Object.values(choice.bindings).map((name) => `\${ENV:${name}}`)] },
               })) };
             return window.importPreview;
           }
@@ -385,8 +385,8 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     await button('取消导入'); await absent('dialog'); await evaluate('window.staleImport = false');
     await button('导入到 MCP 库'); await importReady(); await click('选择导入 alpha'); await setField('处理方式 alpha', 'rename');
     await setField('目标名称 alpha', 'alpha-imported'); await setField('环境变量 alpha /auth/token_env', 'API_KEY');
-    await click('选择导入 new-mcp'); await setField('环境变量 new-mcp /args/0', 'MCP_ARGUMENT');
-    await button('预览导入'); await importPreviewReady(); await screenshot('agent-import-preview');
+    await click('选择导入 new-mcp'); await absent('[aria-label="环境变量 new-mcp /args/0"]');
+    await button('预览导入'); await importPreviewReady(); await has('@scope/mcp'); await has('C:/My Documents'); await screenshot('agent-import-preview');
     await button('确认导入配置库'); await has('已导入 2 项到 MCP 库'); await absent('dialog');
     assert.equal(await evaluate('document.querySelector("h1").textContent'), '我的 MCP');
     assert.deepEqual(Object.keys(await latest('commit_import')).sort(), ['previewId', 'projectRoot', 'scope']);

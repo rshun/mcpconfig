@@ -26,7 +26,7 @@ export function DiffPage({ plan, error, applying, onApply, onBack, mode, onModeC
         <code className="actual-file-path">{file.path}</code><div className="file-plan-meta"><span>{file.scope === "user" ? "全局配置" : file.scope === "project" ? "项目配置" : "本地配置"}</span><span>{file.format}</span><span>新增 {file.newCount} · 更新 {file.updateCount} · 保持 {file.unchangedCount}</span></div>
         {file.blocked && <Banner tone="warn">{file.blocked}</Banner>}
         {file.warnings.map((warning) => <Banner tone="warn" key={warning}>{warning}</Banner>)}
-        {file.diff && <details className="raw-diff"><summary>查看脱敏差异</summary><DiffBody file={file} /><p className="field-hint">参数、地址、环境变量值和凭据已隐藏。</p></details>}
+        {file.diff && <details className="raw-diff"><summary>查看配置差异</summary><DiffBody file={file} /><p className="field-hint">普通配置正常显示，识别到的密钥、Token、密码及认证信息已隐藏。</p></details>}
       </article>)}</div>
     </>}
     <footer className="editor-footer preview-footer"><span className="field-hint"><Icon name="shield" size={15} />保存原文备份</span><div className="spacer" /><button className="btn" disabled={applying} onClick={onBack}>返回修改</button>

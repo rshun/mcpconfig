@@ -114,12 +114,12 @@ fn jsonc_unicode_comments_trailing_commas_and_bom_are_supported() {
     let path = app
         .target_path(adapters::by_id("opencode").unwrap(), Scope::User)
         .unwrap();
-    write(&path, "\u{feff}{ // 注释\n\"mcp\":{\"servers\":{\"中文😀\":{\"command\":[\"python\",\"your_secret_here\"],},},},}");
+    write(&path, "\u{feff}{ // 注释\n\"mcp\":{\"servers\":{\"中文😀\":{\"command\":[\"python\",\"@scope/mcp\"],},},},}");
     let config = app.read_client_config("opencode", Scope::User).unwrap();
     assert_eq!(config.entries[0].name, "中文😀");
     assert_eq!(
         config.entries[0].config["command"],
-        json!(["python", "[已隐藏]"])
+        json!(["python", "@scope/mcp"])
     );
 }
 
@@ -182,7 +182,7 @@ fn credentials_in_any_value_or_argument_never_leave_backend() {
     let path = app
         .target_path(adapters::by_id("codex").unwrap(), Scope::User)
         .unwrap();
-    write(&path, "mcp_servers = { private = { command = 'python', args = ['--password', 'your_secret_here'], url = 'https://your_user:your_password_here@example.invalid/mcp?key=your_api_key_here', env = { PASSWORD = 'your_password_here', PIN = 1234 }, headers = { Authorization = 'Bearer your_token_here' }, custom = 'your_secret_here', nested = [{ secret = 'your_secret_here' }] } }\n");
+    write(&path, "mcp_servers = { private = { command = 'python', args = ['--password', 'your_secret_here'], url = 'https://your_user:your_password_here@example.invalid/mcp?key=your_api_key_here', env = { PASSWORD = 'your_password_here', PIN = 1234 }, headers = { Authorization = 'Bearer your_token_here' }, custom = 'ordinary text', nested = [{ secret = 'your_secret_here' }] } }\n");
     let result = app.read_client_config("codex", Scope::User).unwrap();
     let shown = result.entries[0].config.to_string();
     for hidden in [
@@ -196,4 +196,5 @@ fn credentials_in_any_value_or_argument_never_leave_backend() {
         assert!(!shown.contains(hidden), "敏感值不能出现在 DTO 中");
     }
     assert_eq!(result.entries[0].config["command"], "python");
+    assert_eq!(result.entries[0].config["custom"], "ordinary text");
 }

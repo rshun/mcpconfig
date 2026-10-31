@@ -80,7 +80,7 @@ export function ImportPanel({ clientId, catalogPath, scope, projectRoot, onClose
       <div className="import-route"><span>{clientId}</span><span aria-hidden="true">→</span><b>{fileName(scan?.catalogPath ?? catalogPath)}</b><span className="pill">{scope === "user" ? "全局" : "项目"}</span>{scan && !scan.catalogExists && <small>确认后新建</small>}</div>
       <div className="import-steps"><span className={!preview ? "active" : ""}>1 选择与映射</span><span aria-hidden="true">→</span><span className={preview ? "active" : ""}>2 预览并保存</span></div>
       <details className="import-locations"><summary>来源与目标文件</summary><p>来源：<code>{scan?.sourcePath ?? "扫描中…"}</code></p><p>目标：<code>{scan?.catalogPath ?? catalogPath}</code></p></details>
-      <Banner>源 Agent 文件保持不变。原始参数、地址和凭据不会返回前端；隐藏字段需填入环境变量名，不要填写密钥值。
+      <Banner>源 Agent 文件保持不变。普通地址、包名、目录和参数原样导入；仅凭据需要填写环境变量名，不要填写密钥值。
         原环境变量引用会保留。导入不会创建变量或检查变量值，也不会分发到其他 Agent。</Banner>
       {error && <Banner tone="danger">{error}</Banner>}
       <fieldset disabled={busy || committing} className="import-fields">
@@ -114,8 +114,8 @@ export function ImportPanel({ clientId, catalogPath, scope, projectRoot, onClose
         <div className="source-path"><span>本次保存到</span><code>{preview.catalogPath}</code></div>
         {preview.changes.map((change) => <details key={change.targetName} open>
           <summary>{LABEL[change.action]} · {change.sourceName} → {change.targetName}</summary>
-          {change.before !== null && <><h4>原条目（值已隐藏）</h4><pre>{JSON.stringify(change.before, null, 2)}</pre></>}
-          <h4>导入后（仅安全常量和变量引用）</h4><pre>{JSON.stringify(change.after, null, 2)}</pre>
+          {change.before !== null && <><h4>原条目（凭据已隐藏）</h4><pre>{JSON.stringify(change.before, null, 2)}</pre></>}
+          <h4>导入后（凭据使用变量引用）</h4><pre>{JSON.stringify(change.after, null, 2)}</pre>
         </details>)}
         {replacing && <Banner tone="warn"><label><input type="checkbox" checked={acknowledged} onChange={(e) => setAcknowledged(e.target.checked)} />
           我确认替换所列同名条目的全部字段，包括原有平台覆盖；写入前保留原文备份。</label></Banner>}
