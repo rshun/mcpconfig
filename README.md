@@ -4,7 +4,7 @@
 
 把一份客户自维护的清单，按各客户端的原生格式写入 14 个 MCP 客户端——不用手工配 M×N×K 次。
 
-当前版本：**v0.4.2**。本版细化脱敏和导入规则，普通配置正常显示并直接导入，保留 Windows GUI 免安装 ZIP。使用及回退见 [发布说明](docs/releases/v0.4.2.md)。
+当前版本：**v0.4.3**。本版为 macOS 图形界面加入 ad-hoc 签名（首次打开无需执行 `xattr`），并调整发布产物名称以区分图形界面与命令行。使用及回退见 [发布说明](docs/releases/v0.4.3.md)。
 
 ## 现在的状态
 
@@ -54,10 +54,15 @@ cargo run -p mcp-io --example end_to_end
 
 ## 图形界面
 
-Windows 用户可下载 [GUI 安装程序](https://github.com/rshun/mcpconfig/releases/download/v0.4.2/MCP.Hub_0.4.2_x64-setup.exe)，
-或 [GUI 免安装 ZIP](https://github.com/rshun/mcpconfig/releases/download/v0.4.2/MCP.Hub_0.4.2_windows-x64-portable.zip)。
+Windows 用户可下载 [GUI 安装程序](https://github.com/rshun/mcpconfig/releases/download/v0.4.3/MCP.Hub_0.4.3_x64-setup.exe)，
+或 [GUI 免安装 ZIP](https://github.com/rshun/mcpconfig/releases/download/v0.4.3/MCP.Hub_0.4.3_windows-x64-portable.zip)。
 ZIP 完整解压后运行 `MCP.Hub.exe`；它使用系统已有的 [Microsoft WebView2 Runtime](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)，缺少时需先安装运行时。
-配置与备份仍使用用户目录，详见 [免安装说明](docs/WINDOWS-PORTABLE.txt)。`mcp-hub-v*-windows-x64.zip` 是独立 CLI 包。
+配置与备份仍使用用户目录，详见 [免安装说明](docs/WINDOWS-PORTABLE.txt)。`mcp-hub-cli-v*-windows-x64.zip` 是独立 CLI 包。
+
+macOS（Apple Silicon）用户可下载 [GUI 安装包](https://github.com/rshun/mcpconfig/releases/download/v0.4.3/MCP.Hub_0.4.3_macos-arm64.dmg)，即 `MCP.Hub_<版本>_macos-arm64.dmg`（v0.4.2 及更早为 `MCP.Hub_<版本>_aarch64.dmg`），
+打开后把 **MCP Hub** 拖入「应用程序」。`mcp-hub-cli-*` / `mcp-hub-v*-macos-arm64.tar.gz` 是命令行包，解压后双击会打开终端。
+从 v0.4.3 起 macOS 应用使用 ad-hoc 签名（非 Apple 开发者证书、未公证），首次打开会提示“无法验证开发者”：
+点「完成」后到「系统设置 → 隐私与安全性」点「仍要打开」，之后可直接启动，无需执行 `xattr`。
 
 
 ```bash
@@ -204,6 +209,9 @@ GitHub Actions 会产出：
 | `mcp-hub-v0.1.1-linux-x64.tar.gz` | Linux 命令行（musl 静态，免依赖） |
 | `mcp-hub-v0.1.1-windows-x64.zip` / `-macos-arm64.tar.gz` | 命令行 |
 | `SHA256SUMS` | 全部产物的校验和 |
+
+> 从 v0.4.3 起产物改名以区分图形界面与命令行：macOS GUI 为 `MCP.Hub_<版本>_macos-arm64.dmg`（ad-hoc 签名），
+> CLI 为 `mcp-hub-cli-v<版本>-<平台>.tar.gz` / `.zip`；Windows 安装程序与免安装 ZIP 名称不变。
 
 另附 `customer-mcp.yaml` 示例清单。桌面安装后请在顶部清单输入框填写自有清单或下载示例的绝对路径。
 发布前的测试、构建、安装包生成与校验均在 GitHub Actions 执行。

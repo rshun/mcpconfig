@@ -891,6 +891,8 @@ apps/web ──► 命令契约 ──► mcp-desktop / mcp-cli ──► mcp-ap
 
 产物命名：`mcp-hub-v0.1.0-linux-x64.tar.gz`、`mcp-hub-v0.1.0-windows-x64.zip`、`mcp-hub-v0.1.0-macos-arm64.tar.gz`；
 GUI 为 `MCP Hub_0.1.0_x64-setup.exe` / `MCP Hub_0.1.0_aarch64.dmg`（Tauri 默认命名）。
+v0.4.3 起名称统一由 `scripts/publish_release.py` 的 `cli_name` / `gui_installer_name` 生成：CLI 为 `mcp-hub-cli-v<版本>-<平台>`，
+macOS GUI 为 `MCP.Hub_<版本>_macos-arm64.dmg`，并在 CI 中校验 DMG 内 `.app` 的 ad-hoc 签名（`bundle.macOS.signingIdentity = "-"`）。
 
 #### 发布流程
 

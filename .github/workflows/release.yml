@@ -127,6 +127,7 @@ jobs:
         run: |
           python - <<'PY'
           import os, pathlib, subprocess, tarfile, zipfile
+          from scripts.publish_release import cli_name
 
           platform = os.environ['RELEASE_PLATFORM']
           binary_name = 'mcp-hub.exe' if platform == 'windows-x64' else 'mcp-hub'
@@ -140,15 +141,15 @@ jobs:
                   raise SystemExit('Linux CLI must be statically linked')
           output = pathlib.Path('release-assets')
           output.mkdir()
-          stem = f"mcp-hub-v{os.environ['RELEASE_VERSION']}-{platform}"
+          archive_name = cli_name(os.environ['RELEASE_VERSION'], platform)
           files = [(binary, binary_name), (pathlib.Path('README.md'), 'README.md'),
                    (pathlib.Path('examples/customer-mcp.yaml'), 'examples/customer-mcp.yaml')]
           if platform == 'windows-x64':
-              with zipfile.ZipFile(output / f'{stem}.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
+              with zipfile.ZipFile(output / archive_name, 'w', zipfile.ZIP_DEFLATED) as archive:
                   for source, name in files:
                       archive.write(source, name)
           else:
-              with tarfile.open(output / f'{stem}.tar.gz', 'w:gz') as archive:
+              with tarfile.open(output / archive_name, 'w:gz') as archive:
                   for source, name in files:
                       archive.add(source, arcname=name)
           PY
@@ -171,18 +172,22 @@ jobs:
             platform: windows-x64
             target: x86_64-pc-windows-msvc
             bundle: nsis
-            suffix: x64-setup.exe
+            # Windows 无证书，跳过签名
+            sign_args: '--no-sign'
           - os: macos-15
             platform: macos-arm64
             target: aarch64-apple-darwin
             bundle: dmg
-            suffix: aarch64.dmg
+            # 使用 tauri.conf.json 中的 ad-hoc 签名（signingIdentity "-"），无需证书或密钥；
+            # 完整签名的 .app 下载后不会被判定为“已损坏”，可在系统设置中“仍要打开”，无需 xattr
+            sign_args: ''
     runs-on: ${{ matrix.os }}
     env:
       BUILD_TARGET: ${{ matrix.target }}
       BUNDLE_KIND: ${{ matrix.bundle }}
+      RELEASE_PLATFORM: ${{ matrix.platform }}
       RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
-      RELEASE_SUFFIX: ${{ matrix.suffix }}
+      SIGN_ARGS: ${{ matrix.sign_args }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
@@ -196,15 +201,32 @@ jobs:
       - name: Restore locked frontend dependencies
         working-directory: apps/web
         run: npm ci
-      - name: Build unsigned desktop installer
+      - name: Build desktop installer
         working-directory: apps/web
         shell: bash
-        run: npm run tauri -- build --ci --no-sign --target "$BUILD_TARGET" --bundles "$BUNDLE_KIND" -- --locked
+        # SIGN_ARGS 故意不加引号：为空时不传参数
+        run: npm run tauri -- build --ci $SIGN_ARGS --target "$BUILD_TARGET" --bundles "$BUNDLE_KIND" -- --locked
+      - name: Verify macOS ad-hoc signature inside DMG
+        if: matrix.platform == 'macos-arm64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg=$(ls target/"$BUILD_TARGET"/release/bundle/dmg/*.dmg)
+          mount=$(mktemp -d)
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount"
+          trap 'hdiutil detach "$mount"' EXIT
+          app="$mount/MCP Hub.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          details=$(codesign -dv "$app" 2>&1)
+          echo "$details"
+          grep -q 'Signature=adhoc' <<<"$details"
+          grep -q 'Sealed Resources' <<<"$details"
       - name: Collect installer
         shell: bash
         run: |
           python - <<'PY'
           import os, pathlib, shutil
+          from scripts.publish_release import gui_installer_name
 
           bundle = os.environ['BUNDLE_KIND']
           source = pathlib.Path('target', os.environ['BUILD_TARGET'], 'release', 'bundle', bundle)
@@ -213,7 +235,7 @@ jobs:
               raise SystemExit(f'Expected one {bundle} installer, found {len(matches)}')
           output = pathlib.Path('release-assets')
           output.mkdir()
-          name = f"MCP.Hub_{os.environ['RELEASE_VERSION']}_{os.environ['RELEASE_SUFFIX']}"
+          name = gui_installer_name(os.environ['RELEASE_VERSION'], os.environ['RELEASE_PLATFORM'])
           shutil.copy2(matches[0], output / name)
           PY
       - name: Package and verify Windows portable GUI

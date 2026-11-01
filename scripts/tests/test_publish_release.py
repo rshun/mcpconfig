@@ -3,7 +3,8 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from publish_release import checksums, digest, expected_names, prepare, verify_asset
+from publish_release import (checksums, cli_name, digest, expected_names, gui_installer_name,
+                             prepare, verify_asset)
 
 
 class ReleaseTests(unittest.TestCase):
@@ -88,6 +89,38 @@ class ReleaseTests(unittest.TestCase):
         corrupt = dict(candidate, **{portable: b'corrupt'})
         with self.assertRaises(ValueError):
             prepare(corrupt, '0.4.1', None)
+
+    def test_historical_versions_keep_original_asset_names(self):
+        self.assertEqual(expected_names('0.4.2'), {
+            'mcp-hub-v0.4.2-linux-x64.tar.gz',
+            'mcp-hub-v0.4.2-windows-x64.zip',
+            'mcp-hub-v0.4.2-macos-arm64.tar.gz',
+            'MCP.Hub_0.4.2_x64-setup.exe',
+            'MCP.Hub_0.4.2_aarch64.dmg',
+            'MCP.Hub_0.4.2_windows-x64-portable.zip',
+            'customer-mcp.yaml',
+        })
+
+    def test_new_versions_distinguish_cli_from_macos_gui(self):
+        self.assertEqual(expected_names('0.4.3'), {
+            'mcp-hub-cli-v0.4.3-linux-x64.tar.gz',
+            'mcp-hub-cli-v0.4.3-windows-x64.zip',
+            'mcp-hub-cli-v0.4.3-macos-arm64.tar.gz',
+            'MCP.Hub_0.4.3_x64-setup.exe',
+            'MCP.Hub_0.4.3_macos-arm64.dmg',
+            'MCP.Hub_0.4.3_windows-x64-portable.zip',
+            'customer-mcp.yaml',
+        })
+        self.assertEqual(cli_name('1.0.0', 'macos-arm64'), 'mcp-hub-cli-v1.0.0-macos-arm64.tar.gz')
+        self.assertEqual(gui_installer_name('1.0.0', 'macos-arm64'), 'MCP.Hub_1.0.0_macos-arm64.dmg')
+        files, _ = prepare(self.candidate(version='0.4.3'), '0.4.3', None)
+        self.assertIn('MCP.Hub_0.4.3_macos-arm64.dmg', files)
+
+    def test_unknown_platform_is_rejected(self):
+        with self.assertRaises(ValueError):
+            cli_name('0.4.3', 'macos-x64')
+        with self.assertRaises(ValueError):
+            gui_installer_name('0.4.3', 'linux-x64')
 
     def test_missing_digest_or_incomplete_upload_is_rejected(self):
         files = {'asset': b'content'}

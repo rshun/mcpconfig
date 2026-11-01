@@ -11,17 +11,39 @@ def digest(data):
     return 'sha256:' + hashlib.sha256(data).hexdigest()
 
 
+# 从该版本起：CLI 包名带 `-cli-`，macOS GUI 安装包名带 `macos-arm64`，避免与 CLI 混淆。
+CLEAR_NAMES_SINCE = (0, 4, 3)
+CLI_PLATFORMS = ('linux-x64', 'windows-x64', 'macos-arm64')
+GUI_PLATFORMS = ('windows-x64', 'macos-arm64')
+
+
+def at_least(version, floor):
+    return tuple(int(part) for part in version.split('.')) >= floor
+
+
+def cli_name(version, platform):
+    if platform not in CLI_PLATFORMS:
+        raise ValueError(f'Unknown CLI platform: {platform}')
+    prefix = 'mcp-hub-cli' if at_least(version, CLEAR_NAMES_SINCE) else 'mcp-hub'
+    extension = 'zip' if platform == 'windows-x64' else 'tar.gz'
+    return f'{prefix}-v{version}-{platform}.{extension}'
+
+
+def gui_installer_name(version, platform):
+    if platform == 'windows-x64':
+        return f'MCP.Hub_{version}_x64-setup.exe'
+    if platform == 'macos-arm64':
+        suffix = 'macos-arm64' if at_least(version, CLEAR_NAMES_SINCE) else 'aarch64'
+        return f'MCP.Hub_{version}_{suffix}.dmg'
+    raise ValueError(f'Unknown GUI platform: {platform}')
+
+
 def expected_names(version):
-    names = {
-        f'mcp-hub-v{version}-linux-x64.tar.gz',
-        f'mcp-hub-v{version}-windows-x64.zip',
-        f'mcp-hub-v{version}-macos-arm64.tar.gz',
-        f'MCP.Hub_{version}_x64-setup.exe',
-        f'MCP.Hub_{version}_aarch64.dmg',
-        'customer-mcp.yaml',
-    }
+    names = {cli_name(version, platform) for platform in CLI_PLATFORMS}
+    names |= {gui_installer_name(version, platform) for platform in GUI_PLATFORMS}
+    names.add('customer-mcp.yaml')
     # Keep historical candidates resumable with their original six-payload schema.
-    if tuple(int(part) for part in version.split('.')) >= (0, 4, 1):
+    if at_least(version, (0, 4, 1)):
         names.add(f'MCP.Hub_{version}_windows-x64-portable.zip')
     return names
 
