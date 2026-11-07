@@ -375,7 +375,7 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     await button('导入到 MCP 库'); await importReady(); await click('选择导入 alpha');
     assert.equal(await evaluate('document.querySelector("[aria-label=\\"处理方式 alpha\\"]").value'), 'skip');
     await setField('处理方式 alpha', 'rename'); await setField('目标名称 alpha', 'alpha-imported');
-    assert.equal(await evaluate('document.querySelector("[aria-label=\\\\"凭据处理 alpha /auth/token_env\\\\"]").value'), 'copy');
+    assert.equal(await evaluate('document.querySelector("[aria-label=\\"凭据处理 alpha /auth/token_env\\"]").value'), 'copy');
     await absent('[aria-label="环境变量 alpha /auth/token_env"]');
     await setField('凭据处理 alpha /auth/token_env', 'env');
     await setField('环境变量 alpha /auth/token_env', 'API_KEY'); await button('预览导入'); await importPreviewReady();
