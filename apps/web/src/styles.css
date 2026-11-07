@@ -239,7 +239,7 @@ summary { cursor: pointer; font-size: 12px; color: var(--text-2); line-height: 1
 .import-item-head label { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 .import-options { display: flex; gap: 15px; margin-top: 15px; }
 .import-options label { flex: 1; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text-3); }
-.import-mapping { display: grid; grid-template-columns: 180px minmax(0,1fr); align-items: center; gap: 13px; margin-top: 15px; font-size: 12px; }
+.import-mapping { display: grid; grid-template-columns: 180px 140px minmax(0,1fr); align-items: center; gap: 13px; margin-top: 15px; font-size: 12px; }
 .import-mapping small { display: block; font-size: 10px; }
 .import-controls { padding: 15px 0; }
 .import-preview { border-top: 1px solid var(--line); padding-top: 20px; margin-top: 8px; scroll-margin-top: 20px; }
@@ -339,7 +339,7 @@ summary { cursor: pointer; font-size: 12px; color: var(--text-2); line-height: 1
 .backup-card-top { flex-wrap: wrap; }
 .dialog-content { padding: 20px 19px 0; }
 .dialog-header { padding: 19px; }
-.import-mapping { grid-template-columns: 130px minmax(0,1fr); } }
+.import-mapping { grid-template-columns: 130px 130px minmax(0,1fr); } }
 @media (max-width: 580px) { .topbar { padding: 0 10px; }
 .workspace-context { flex-wrap: wrap; gap: 4px; }
 .scope-select { padding: 7px; max-width: 180px; font-size: 11px; }

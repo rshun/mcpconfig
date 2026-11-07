@@ -5,11 +5,11 @@ use mcp_app::{
 use mcp_core::{
     adapters::{self, Adapter},
     document::{ConfigDoc, MergeMode},
-    model::{Auth, McpEntry, Platform, Scope},
+    model::{Auth, McpEntry, Platform, Scope, SecretSource},
 };
 use serde_json::{json, Value};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
@@ -65,6 +65,7 @@ fn choice(scan: &ImportScan, name: &str, action: ImportAction, target: &str) -> 
         source_name: name.into(),
         action,
         target_name: target.into(),
+        copy_fields: BTreeSet::new(),
         bindings: item
             .fields
             .iter()
@@ -784,6 +785,7 @@ fn ordinary_import_fields_need_no_bindings_and_keep_their_original_values() {
         source_name: "local".into(),
         action: ImportAction::Add,
         target_name: "local".into(),
+        copy_fields: BTreeSet::new(),
         bindings: BTreeMap::new(),
     };
     let preview = sessions.preview(&app, &scan.scan_id, &[choice]).unwrap();
@@ -836,6 +838,7 @@ fn mixed_import_maps_only_credentials_and_keeps_normal_remote_settings() {
                 source_name: "remote".into(),
                 action: ImportAction::Add,
                 target_name: "remote".into(),
+                copy_fields: BTreeSet::new(),
                 bindings: BTreeMap::from([(
                     "/headers/X-Api-Key".into(),
                     "IMPORTED_API_KEY".into(),
@@ -896,6 +899,7 @@ fn sensitive_argument_bindings_keep_inline_flags_and_other_arguments() {
                 source_name: "local".into(),
                 action: ImportAction::Add,
                 target_name: "local".into(),
+                copy_fields: BTreeSet::new(),
                 bindings: BTreeMap::from([
                     ("/args/1".into(), "MY_TOKEN".into()),
                     ("/args/3".into(), "MY_PASSWORD".into()),
@@ -1027,4 +1031,158 @@ fn password_assignments_matching_scheme_names_still_require_mapping() {
             .collect::<Vec<_>>(),
         vec!["/args/0", "/args/2", "/args/4", "/args/5"]
     );
+}
+
+fn copy_all(scan: &ImportScan, name: &str) -> ImportChoice {
+    let item = scan.items.iter().find(|item| item.name == name).unwrap();
+    ImportChoice {
+        source_name: name.into(),
+        action: ImportAction::Add,
+        target_name: name.into(),
+        bindings: BTreeMap::new(),
+        copy_fields: item.fields.iter().map(|field| field.id.clone()).collect(),
+    }
+}
+
+#[test]
+fn copied_credentials_are_written_verbatim_but_hidden_in_scan_and_preview() {
+    let (app, target) = fixture(Platform::current());
+    let url = format!("https://user:{SECRET}@example.invalid/mcp?key={SECRET}");
+    source(
+        &app,
+        adapters::by_id("claude-code").unwrap(),
+        Scope::User,
+        &[
+            (
+                "remote",
+                json!({"url":url, "headers":{"Authorization":format!("Bearer {SECRET}"),"X-Api-Key":SECRET,"Accept":"application/json"}}),
+            ),
+            (
+                "local",
+                json!({"command":"npx", "args":["@scope/mcp",format!("--token={SECRET}"),"--password",SECRET,"--port=8080"], "env":{"API_KEY":SECRET,"NODE_ENV":"production"}}),
+            ),
+        ],
+    );
+    let mut sessions = ImportSessions::default();
+    let scan = sessions
+        .scan(&app, &target, "claude-code", Scope::User)
+        .unwrap();
+    assert!(!serde_json::to_string(&scan).unwrap().contains(SECRET));
+    let choices = vec![copy_all(&scan, "local"), copy_all(&scan, "remote")];
+    assert!(choices.iter().all(|c| !c.copy_fields.is_empty()));
+    let preview = sessions.preview(&app, &scan.scan_id, &choices).unwrap();
+    let shown = serde_json::to_string(&preview).unwrap();
+    assert!(!shown.contains(SECRET), "预览不得包含原样复制的凭据");
+    assert!(shown.contains("[已隐藏]"));
+    sessions.commit(&app, &preview.preview_id).unwrap();
+
+    let (catalog, _) = app.load_catalog(&target).unwrap();
+    let local = catalog.entries.iter().find(|e| e.name == "local").unwrap();
+    assert_eq!(
+        local.args,
+        vec![
+            "@scope/mcp".to_string(),
+            format!("--token={SECRET}"),
+            "--password".into(),
+            SECRET.into(),
+            "--port=8080".into()
+        ]
+    );
+    assert_eq!(local.env["API_KEY"], SECRET);
+    assert_eq!(local.env["NODE_ENV"], "production");
+    let remote = catalog.entries.iter().find(|e| e.name == "remote").unwrap();
+    assert_eq!(remote.url.as_deref(), Some(url.as_str()));
+    assert_eq!(remote.headers["X-Api-Key"], SECRET);
+    assert_eq!(remote.headers["Accept"], "application/json");
+    assert_eq!(
+        remote.auth,
+        Some(Auth::Bearer {
+            token: SecretSource::Literal(SECRET.into())
+        })
+    );
+    let audit = fs::read_to_string(app.engine.audit_path()).unwrap();
+    assert!(!audit.contains(SECRET), "审计日志不得记录凭据");
+}
+
+#[test]
+fn copy_and_mapping_can_be_mixed_per_field() {
+    let (app, target) = fixture(Platform::current());
+    source(
+        &app,
+        adapters::by_id("claude-code").unwrap(),
+        Scope::User,
+        &[(
+            "remote",
+            json!({"url":"https://example.invalid/mcp", "headers":{"Authorization":format!("Bearer {SECRET}"),"X-Api-Key":SECRET}}),
+        )],
+    );
+    let mut sessions = ImportSessions::default();
+    let scan = sessions
+        .scan(&app, &target, "claude-code", Scope::User)
+        .unwrap();
+    let choice = ImportChoice {
+        source_name: "remote".into(),
+        action: ImportAction::Add,
+        target_name: "remote".into(),
+        bindings: BTreeMap::from([("/headers/X-Api-Key".into(), "MY_API_KEY".into())]),
+        copy_fields: BTreeSet::from(["/auth/token_env".to_string()]),
+    };
+    let preview = sessions.preview(&app, &scan.scan_id, &[choice]).unwrap();
+    assert_eq!(preview.changes[0].after["auth"]["token"], "[已隐藏]");
+    assert_eq!(
+        preview.changes[0].after["headers"]["X-Api-Key"],
+        "${ENV:MY_API_KEY}"
+    );
+    assert!(!serde_json::to_string(&preview).unwrap().contains(SECRET));
+    sessions.commit(&app, &preview.preview_id).unwrap();
+    let (catalog, _) = app.load_catalog(&target).unwrap();
+    assert_eq!(catalog.entries[0].headers["X-Api-Key"], "${ENV:MY_API_KEY}");
+    assert_eq!(
+        catalog.entries[0].auth,
+        Some(Auth::Bearer {
+            token: SecretSource::Literal(SECRET.into())
+        })
+    );
+}
+
+#[test]
+fn each_credential_field_needs_exactly_one_choice() {
+    let (app, target) = fixture(Platform::current());
+    source(
+        &app,
+        adapters::by_id("claude-code").unwrap(),
+        Scope::User,
+        &[(
+            "local",
+            json!({"command":"python", "env":{"API_KEY":SECRET,"PASSWORD":SECRET}}),
+        )],
+    );
+    let mut sessions = ImportSessions::default();
+    let scan = sessions
+        .scan(&app, &target, "claude-code", Scope::User)
+        .unwrap();
+    let valid = copy_all(&scan, "local");
+    assert_eq!(valid.copy_fields.len(), 2);
+
+    let mut missing = valid.clone();
+    missing.copy_fields.pop_first();
+    assert!(sessions.preview(&app, &scan.scan_id, &[missing]).is_err());
+
+    let mut both = valid.clone();
+    let id = both.copy_fields.first().unwrap().clone();
+    both.bindings.insert(id, "MY_VALUE".into());
+    assert!(sessions.preview(&app, &scan.scan_id, &[both]).is_err());
+
+    let mut unknown = valid.clone();
+    unknown.copy_fields.pop_first();
+    unknown.copy_fields.insert("/env/UNKNOWN".into());
+    assert!(sessions.preview(&app, &scan.scan_id, &[unknown]).is_err());
+
+    // 普通字段不能借“原样复制”绕过校验。
+    let mut ordinary = valid.clone();
+    ordinary.copy_fields.insert("/command".into());
+    assert!(sessions.preview(&app, &scan.scan_id, &[ordinary]).is_err());
+
+    assert!(sessions.preview(&app, &scan.scan_id, &[valid]).is_ok());
+    assert!(!target.exists());
 }

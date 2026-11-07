@@ -59,7 +59,10 @@ export interface ImportChoice {
   sourceName: string;
   action: ImportAction;
   targetName: string;
+  /** 映射为环境变量的凭据字段 → 变量名 */
   bindings: Record<string, string>;
+  /** 原样复制原值的凭据字段；每个凭据字段只能出现在 bindings 或 copyFields 之一 */
+  copyFields: string[];
 }
 export interface ImportScan {
   scanId: string;

@@ -284,12 +284,12 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
       if (!choices.length) throw new Error("尚未选择可导入的条目");
       const changes = choices.map((choice) => {
         const item = scan.items.find((item) => item.name === choice.sourceName);
-        if (!item || !choice.targetName.trim() || item.fields.some((field) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(choice.bindings[field.id] ?? ""))) throw new Error("请完整填写环境变量映射");
+        if (!item || !choice.targetName.trim() || item.fields.some((field) => (choice.copyFields ?? []).includes(field.id) === (field.id in choice.bindings) || (field.id in choice.bindings && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(choice.bindings[field.id])))) throw new Error("请完整填写环境变量映射");
         const exists = ENTRIES.some((entry) => entry.name === choice.targetName);
         if (choice.action === "replace" ? !exists : exists) throw new Error("目标名称冲突，请重新处理");
         return { sourceName: choice.sourceName, targetName: choice.targetName, action: choice.action,
           before: choice.action === "replace" ? { command: "[已隐藏]" } : null,
-          after: { name: choice.targetName, transport: "stdio", command: "python", args: ["-y", "@scope/mcp", "C:/My Documents"], env: { API_KEY: `\${ENV:${choice.bindings['/env/API_KEY']}}` }, scope } };
+          after: { name: choice.targetName, transport: "stdio", command: "python", args: ["-y", "@scope/mcp", "C:/My Documents"], env: { API_KEY: (choice.copyFields ?? []).includes("/env/API_KEY") ? "[已隐藏]" : `\${ENV:${choice.bindings['/env/API_KEY']}}` }, scope } };
       });
       const preview = { previewId: `demo-preview-${++importSerial}`, scanId: scan.scanId, scope, catalogPath: scan.catalogPath, changes };
       importPreviews.set(preview.previewId, preview); return preview as T;

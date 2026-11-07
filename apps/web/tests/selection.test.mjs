@@ -130,7 +130,7 @@ test("项目目录完整传入检测、矩阵和只读查看，设置独立保�
 
 test("导入 IPC 保留上下文、冲突策略和映射，确认只发送后端预览 ID", async () => {
   calls.length = 0;
-  const choices = [{ sourceName: "same", action: "rename", targetName: "same-copy", bindings: { "/auth/token_env": "SERVICE_AUTH" } }];
+  const choices = [{ sourceName: "same", action: "rename", targetName: "same-copy", bindings: { "/auth/token_env": "SERVICE_AUTH" }, copyFields: ["/env/API_KEY"] }];
   await api.scanImport("C:/test/catalog.yaml", "codex", "project", "C:/test/project");
   await api.previewImport("scan-id", choices, "project", "C:/test/project");
   await api.commitImport("preview-id", "project", "C:/test/project");
@@ -156,6 +156,16 @@ test("演示导入需要完整变量映射，取消和重复确认均被阻止",
   const cancelled = await mockCall("scan_import", { catalogPath: "C:/demo/catalog.yaml", clientId: "codex", scope: "user" });
   await mockCall("cancel_import", { scanId: cancelled.scanId });
   await assert.rejects(mockCall("preview_import", { scanId: cancelled.scanId, choices: [choice] }));
+});
+
+test("演示导入可原样复制凭据，预览只显示隐藏标记，同一字段不能既复制又映射", async () => {
+  const scan = await mockCall("scan_import", { catalogPath: "C:/demo/catalog.yaml", clientId: "codex", scope: "user" });
+  const both = { sourceName: "example-mcp", action: "rename", targetName: "example-mcp-copied", bindings: { "/env/API_KEY": "MCP_KEY" }, copyFields: ["/env/API_KEY"] };
+  await assert.rejects(mockCall("preview_import", { scanId: scan.scanId, choices: [both] }));
+  const copy = { ...both, bindings: {} };
+  const preview = await mockCall("preview_import", { scanId: scan.scanId, choices: [copy], scope: "user" });
+  assert.equal(preview.changes[0].after.env.API_KEY, "[已隐藏]");
+  await mockCall("cancel_import", { scanId: scan.scanId });
 });
 
 const { scopeReason, scopeLabel, variableNames, fileName } = await import('../src/library.ts');

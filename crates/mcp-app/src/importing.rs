@@ -1,4 +1,4 @@
-//! Agent → 配置库：原文留在后端，预览绑定两端快照，只接受环境变量映射。
+//! Agent → 配置库：原文留在后端，预览绑定两端快照；凭据字段可映射为环境变量，或按用户选择原样复制。
 use crate::{scope_block_reason, App, AppError};
 use mcp_core::{
     adapters::{self, Adapter, EnabledKey, EntryStyle},
@@ -17,6 +17,8 @@ use std::{
 
 const TTL: Duration = Duration::from_secs(600);
 const MAX_BYTES: u64 = 4 * 1024 * 1024;
+/// 与 `mcp_core::redact` 的隐藏标记一致；原样复制的凭据在预览中只显示该标记。
+const HIDDEN: &str = "[已隐藏]";
 fn fail(message: &str) -> AppError {
     AppError::Other(message.into())
 }
@@ -51,7 +53,11 @@ pub struct ImportChoice {
     pub source_name: String,
     pub action: ImportAction,
     pub target_name: String,
+    /// 凭据字段 → 环境变量名。
     pub bindings: BTreeMap<String, String>,
+    /// 原样复制原值的凭据字段；每个凭据字段必须且只能出现在 `bindings` 或此处之一。
+    #[serde(default)]
+    pub copy_fields: BTreeSet<String>,
 }
 #[derive(Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -97,8 +103,15 @@ struct Snapshot {
     catalog: Catalog,
     settings: Option<String>,
     context: (PathBuf, PathBuf, Option<PathBuf>, Platform, PathBuf),
-    items: Vec<(ImportItem, Option<Value>)>,
+    items: Vec<(ImportItem, Option<Converted>)>,
     created: Instant,
+}
+/// 同样不实现 Serialize / Debug：`originals` 保存凭据原值，只在后端用于“原样复制”。
+struct Converted {
+    /// 凭据字段已清空、可安全展示的条目。
+    safe: Value,
+    /// 凭据字段 id → (原值, 预览中显示的隐藏值)。
+    originals: BTreeMap<String, (Value, Value)>,
 }
 struct Prepared {
     scan_id: String,
@@ -191,7 +204,7 @@ impl ImportSessions {
         for (name, raw) in entries {
             let conflict = catalog.entries.iter().any(|entry| entry.name == name);
             let (item, safe) = match convert(adapter, &name, &raw, scope) {
-                Ok((safe, fields)) => (
+                Ok((safe, fields, originals)) => (
                     ImportItem {
                         name,
                         conflict,
@@ -199,7 +212,7 @@ impl ImportSessions {
                         blocked: None,
                         fields,
                     },
-                    Some(safe),
+                    Some(Converted { safe, originals }),
                 ),
                 Err(reason) => (
                     ImportItem {
@@ -274,7 +287,7 @@ impl ImportSessions {
             if choice.action == ImportAction::Skip {
                 continue;
             }
-            let safe = safe
+            let converted = safe
                 .as_ref()
                 .ok_or_else(|| fail("所选条目包含无法安全转换的字段"))?;
             let name = choice.target_name.trim();
@@ -301,11 +314,45 @@ impl ImportSessions {
                 }
                 _ => {}
             }
-            if choice.bindings.len() != item.fields.len() {
-                return Err(fail("请为每个隐藏字段提供环境变量映射"));
+            let known: BTreeSet<&str> = item.fields.iter().map(|f| f.id.as_str()).collect();
+            if choice.bindings.len() + choice.copy_fields.len() != item.fields.len()
+                || choice
+                    .bindings
+                    .keys()
+                    .any(|id| !known.contains(id.as_str()))
+                || choice
+                    .copy_fields
+                    .iter()
+                    .any(|id| !known.contains(id.as_str()))
+                || choice
+                    .bindings
+                    .keys()
+                    .any(|id| choice.copy_fields.contains(id))
+            {
+                return Err(fail("请为每个凭据字段选择原样复制或环境变量映射"));
             }
-            let mut after = safe.clone();
+            // after 写入配置库；shown 返回前端预览，原样复制的凭据只显示隐藏标记。
+            let mut after = converted.safe.clone();
+            let mut shown = converted.safe.clone();
             for field in &item.fields {
+                if choice.copy_fields.contains(&field.id) {
+                    let (original, hidden) = converted
+                        .originals
+                        .get(&field.id)
+                        .ok_or_else(|| fail("导入字段映射失效，请重新扫描"))?;
+                    if field.id == "/auth/token_env" {
+                        after["auth"] = serde_json::json!({"type": "bearer", "token": original});
+                        shown["auth"] = serde_json::json!({"type": "bearer", "token": hidden});
+                    } else {
+                        for (target, value) in [(&mut after, original), (&mut shown, hidden)] {
+                            *target
+                                .pointer_mut(&field.id)
+                                .ok_or_else(|| fail("导入字段映射失效，请重新扫描"))? =
+                                value.clone();
+                        }
+                    }
+                    continue;
+                }
                 let env = choice
                     .bindings
                     .get(&field.id)
@@ -325,9 +372,13 @@ impl ImportSessions {
                 } else {
                     format!("${{ENV:{env}}}")
                 };
-                *slot = Value::String(value);
+                *slot = Value::String(value.clone());
+                *shown
+                    .pointer_mut(&field.id)
+                    .ok_or_else(|| fail("导入字段映射失效，请重新扫描"))? = Value::String(value);
             }
             after["name"] = Value::String(name.into());
+            shown["name"] = Value::String(name.into());
             let entry: McpEntry =
                 serde_json::from_value(after.clone()).map_err(|_| fail("导入结果结构无效"))?;
             let before = existing.map(|e| {
@@ -340,7 +391,7 @@ impl ImportSessions {
                 target_name: name.into(),
                 action: choice.action,
                 before,
-                after,
+                after: shown,
             });
         }
         if changes.is_empty() {
@@ -501,10 +552,12 @@ fn field(
     label: String,
     inline_prefix: Option<&str>,
     fields: &mut Vec<ImportField>,
+    originals: &mut BTreeMap<String, (Value, Value)>,
 ) {
     if let Some(normalized) = value.as_str().and_then(reference) {
         *value = Value::String(normalized);
     } else if *value != *shown {
+        originals.insert(id.clone(), (value.clone(), shown.clone()));
         *value = Value::String(inline_prefix.unwrap_or_default().into());
         fields.push(ImportField { id, label });
     } else if let Some(text) = value.as_str() {
@@ -515,33 +568,40 @@ fn pointer_key(key: &str) -> String {
     key.replace('~', "~0").replace('/', "~1")
 }
 
+type ConvertedParts = (Value, Vec<ImportField>, BTreeMap<String, (Value, Value)>);
+
 fn convert(
     adapter: &dyn Adapter,
     name: &str,
     raw: &Value,
     scope: Scope,
-) -> Result<(Value, Vec<ImportField>), &'static str> {
+) -> Result<ConvertedParts, &'static str> {
     strict(adapter, raw)?;
     let mut entry = adapter
         .decode_entry(name, raw)
         .map_err(|_| "无法转换来源条目")?;
     entry.scope = Some(scope);
-    let auth_field = match &entry.auth {
+    let auth_token = match &entry.auth {
         Some(Auth::Bearer {
-            token: SecretSource::Literal(_),
-        }) => true,
+            token: SecretSource::Literal(token),
+        }) => Some(token.clone()),
         Some(Auth::Bearer {
             token: SecretSource::EnvRef(name),
         }) if !env_name(name) => return Err("来源认证环境变量名无效"),
-        _ => false,
+        _ => None,
     };
-    if auth_field {
+    if auth_token.is_some() {
         entry.auth = Some(Auth::env_ref("IMPORT_PENDING"));
     }
     let mut safe = serde_json::to_value(entry).map_err(|_| "无法转换来源条目")?;
     let mut fields = Vec::new();
-    if auth_field {
+    let mut originals = BTreeMap::new();
+    if let Some(token) = auth_token {
         safe["auth"]["token_env"] = Value::String(String::new());
+        originals.insert(
+            "/auth/token_env".to_string(),
+            (Value::String(token), Value::String(HIDDEN.into())),
+        );
         fields.push(ImportField {
             id: "/auth/token_env".into(),
             label: "Bearer 凭据".into(),
@@ -557,6 +617,7 @@ fn convert(
                 key.into(),
                 None,
                 &mut fields,
+                &mut originals,
             );
         }
     }
@@ -570,6 +631,7 @@ fn convert(
                 format!("参数 {}", i + 1),
                 prefixes[i].as_deref(),
                 &mut fields,
+                &mut originals,
             );
         }
     }
@@ -583,11 +645,12 @@ fn convert(
                     format!("{key}.{name}"),
                     None,
                     &mut fields,
+                    &mut originals,
                 );
             }
         }
     }
-    Ok((safe, fields))
+    Ok((safe, fields, originals))
 }
 
 /// 通用解码器容许读旧配置；导入必须额外拒绝丢字段、类型过滤和有歧义的别名。
