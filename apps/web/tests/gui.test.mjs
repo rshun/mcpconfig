@@ -375,8 +375,11 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     await button('导入到 MCP 库'); await importReady(); await click('选择导入 alpha');
     assert.equal(await evaluate('document.querySelector("[aria-label=\\"处理方式 alpha\\"]").value'), 'skip');
     await setField('处理方式 alpha', 'rename'); await setField('目标名称 alpha', 'alpha-imported');
+    assert.equal(await evaluate('document.querySelector("[aria-label=\\"凭据处理 alpha /auth/token_env\\"]").value'), 'copy');
+    await absent('[aria-label="环境变量 alpha /auth/token_env"]');
+    await setField('凭据处理 alpha /auth/token_env', 'env');
     await setField('环境变量 alpha /auth/token_env', 'API_KEY'); await button('预览导入'); await importPreviewReady();
-    assert.deepEqual((await latest('preview_import')).choices, [{ sourceName: 'alpha', action: 'rename', targetName: 'alpha-imported', bindings: { '/auth/token_env': 'API_KEY' } }]);
+    assert.deepEqual((await latest('preview_import')).choices, [{ sourceName: 'alpha', action: 'rename', targetName: 'alpha-imported', bindings: { '/auth/token_env': 'API_KEY' }, copyFields: [] }]);
     await setField('目标名称 alpha', 'alpha-changed'); await absent('[aria-label="导入差异预览"]');
     await setField('处理方式 alpha', 'replace'); await button('预览导入'); await importPreviewReady();
     assert.equal(await evaluate('[...document.querySelectorAll("button")].find((b) => b.textContent === "确认导入配置库").disabled'), true);
@@ -384,9 +387,11 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     await button('确认导入配置库'); await has('源配置已变化'); await absent('[aria-label="导入差异预览"]');
     await button('取消导入'); await absent('dialog'); await evaluate('window.staleImport = false');
     await button('导入到 MCP 库'); await importReady(); await click('选择导入 alpha'); await setField('处理方式 alpha', 'rename');
-    await setField('目标名称 alpha', 'alpha-imported'); await setField('环境变量 alpha /auth/token_env', 'API_KEY');
+    await setField('目标名称 alpha', 'alpha-imported');
     await click('选择导入 new-mcp'); await absent('[aria-label="环境变量 new-mcp /args/0"]');
     await button('预览导入'); await importPreviewReady(); await has('@scope/mcp'); await has('C:/My Documents'); await screenshot('agent-import-preview');
+    assert.deepEqual((await latest('preview_import')).choices.find((choice) => choice.sourceName === 'alpha'),
+      { sourceName: 'alpha', action: 'rename', targetName: 'alpha-imported', bindings: {}, copyFields: ['/auth/token_env'] });
     await button('确认导入配置库'); await has('已导入 2 项到 MCP 库'); await absent('dialog');
     assert.equal(await evaluate('document.querySelector("h1").textContent'), '我的 MCP');
     assert.deepEqual(Object.keys(await latest('commit_import')).sort(), ['previewId', 'projectRoot', 'scope']);

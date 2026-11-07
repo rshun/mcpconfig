@@ -4,7 +4,7 @@
 
 把一份客户自维护的清单，按各客户端的原生格式写入 14 个 MCP 客户端——不用手工配 M×N×K 次。
 
-当前版本：**v0.4.3**。本版为 macOS 图形界面加入 ad-hoc 签名（首次打开无需执行 `xattr`），并调整发布产物名称以区分图形界面与命令行。使用及回退见 [发布说明](docs/releases/v0.4.3.md)。
+当前版本：**v0.4.4**。本版导入时识别到的凭据默认原样复制到配置库，也可逐个字段改为环境变量映射；扫描和预览中凭据保持隐藏。使用及回退见 [发布说明](docs/releases/v0.4.4.md)。
 
 ## 现在的状态
 
@@ -54,12 +54,12 @@ cargo run -p mcp-io --example end_to_end
 
 ## 图形界面
 
-Windows 用户可下载 [GUI 安装程序](https://github.com/rshun/mcpconfig/releases/download/v0.4.3/MCP.Hub_0.4.3_x64-setup.exe)，
-或 [GUI 免安装 ZIP](https://github.com/rshun/mcpconfig/releases/download/v0.4.3/MCP.Hub_0.4.3_windows-x64-portable.zip)。
+Windows 用户可下载 [GUI 安装程序](https://github.com/rshun/mcpconfig/releases/download/v0.4.4/MCP.Hub_0.4.4_x64-setup.exe)，
+或 [GUI 免安装 ZIP](https://github.com/rshun/mcpconfig/releases/download/v0.4.4/MCP.Hub_0.4.4_windows-x64-portable.zip)。
 ZIP 完整解压后运行 `MCP.Hub.exe`；它使用系统已有的 [Microsoft WebView2 Runtime](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)，缺少时需先安装运行时。
 配置与备份仍使用用户目录，详见 [免安装说明](docs/WINDOWS-PORTABLE.txt)。`mcp-hub-cli-v*-windows-x64.zip` 是独立 CLI 包。
 
-macOS（Apple Silicon）用户可下载 [GUI 安装包](https://github.com/rshun/mcpconfig/releases/download/v0.4.3/MCP.Hub_0.4.3_macos-arm64.dmg)，即 `MCP.Hub_<版本>_macos-arm64.dmg`（v0.4.2 及更早为 `MCP.Hub_<版本>_aarch64.dmg`），
+macOS（Apple Silicon）用户可下载 [GUI 安装包](https://github.com/rshun/mcpconfig/releases/download/v0.4.4/MCP.Hub_0.4.4_macos-arm64.dmg)，即 `MCP.Hub_<版本>_macos-arm64.dmg`（v0.4.2 及更早为 `MCP.Hub_<版本>_aarch64.dmg`），
 打开后把 **MCP Hub** 拖入「应用程序」。`mcp-hub-cli-*` / `mcp-hub-v*-macos-arm64.tar.gz` 是命令行包，解压后双击会打开终端。
 从 v0.4.3 起 macOS 应用使用 ad-hoc 签名（非 Apple 开发者证书、未公证），首次打开会提示“无法验证开发者”：
 点「完成」后到「系统设置 → 隐私与安全性」点「仍要打开」，之后可直接启动，无需执行 `xattr`。
@@ -138,10 +138,10 @@ v0.4.2 起按字段和参数语义脱敏：普通 URL、包名、目录、参数
 
 ### 从已有 Agent 导入配置库
 
-在 Agents 页点选 Agent 后点击「导入到 MCP 库」，勾选条目，为隐藏值填写环境变量名，再预览并确认。
+在 Agents 页点选 Agent 后点击「导入到 MCP 库」，勾选条目，确认凭据处理方式，再预览并确认。
 同名项默认跳过，可重命名或明确替换；替换须额外确认，会先备份原配置库。未选中的条目和来源 Agent 文件保持不变。
-普通参数、URL、目录及非敏感环境变量/请求头按原值导入，无需映射；只有识别到的凭据需要环境变量映射。
-原始凭据不回传前端或作为明文带入导入结果；无法无损转换的条目明确阻止导入。
+普通参数、URL、目录及非敏感环境变量/请求头按原值导入。识别到的凭据默认原样复制到配置库（明文保存，请勿提交或分享配置库），也可逐个改为环境变量映射。
+原始凭据不回传前端，扫描和预览中保持隐藏；无法无损转换的条目明确阻止导入。
 确认时检查源文件、配置库和上下文是否变化，旧预览不能覆盖新内容。
 具体变量规则、使用步骤、限制、GitHub 验证和回退方式见 [导入说明](docs/IMPORTING.md)。
 

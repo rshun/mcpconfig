@@ -4,7 +4,18 @@ import type { ImportAction, ImportChoice, ImportPreview, ImportResult, ImportSca
 import { Banner } from "../components/ui";
 import { fileName } from "../library";
 
-type Draft = ImportChoice & { selected: boolean };
+type FieldMode = "copy" | "env";
+// 凭据字段默认原样复制；切换为环境变量映射时才需要填写变量名。
+type Draft = Omit<ImportChoice, "copyFields"> & { selected: boolean; modes: Record<string, FieldMode> };
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+function toChoice({ selected: _, modes, bindings, ...rest }: Draft): ImportChoice {
+  const ids = Object.keys(modes);
+  return {
+    ...rest,
+    bindings: Object.fromEntries(ids.filter((id) => modes[id] === "env").map((id) => [id, bindings[id]])),
+    copyFields: ids.filter((id) => modes[id] === "copy"),
+  };
+}
 const LABEL = { skip: "跳过", add: "新增", rename: "重命名新增", replace: "替换同名项" };
 
 export function ImportPanel({ clientId, catalogPath, scope, projectRoot, onClose, onDirty, onBusy, onImported, embedded = false }: {
@@ -38,6 +49,7 @@ export function ImportPanel({ clientId, catalogPath, scope, projectRoot, onClose
       setDrafts(Object.fromEntries(value.items.map((item) => [item.name, {
         selected: false, sourceName: item.name, action: item.conflict ? "skip" : "add",
         targetName: item.name, bindings: Object.fromEntries(item.fields.map((field) => [field.id, ""])),
+        modes: Object.fromEntries(item.fields.map((field) => [field.id, "copy" as FieldMode])),
       } satisfies Draft])));
     }).catch((e) => { if (active) setError(String(e)); }).finally(() => { if (active) setBusy(false); });
     return () => {
@@ -52,12 +64,12 @@ export function ImportPanel({ clientId, catalogPath, scope, projectRoot, onClose
   }
   const chosen = Object.values(drafts).filter((draft) => draft.selected && draft.action !== "skip");
   const ready = chosen.length > 0 && chosen.every((draft) => draft.targetName.trim() &&
-    Object.values(draft.bindings).every((name) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)));
+    Object.entries(draft.modes).every(([id, mode]) => mode === "copy" || ENV_NAME.test(draft.bindings[id])));
   async function makePreview() {
     if (!scan || !ready) return;
     const current = ++revision.current; setBusy(true); setError(null); setPreview(null); setAcknowledged(false);
     try {
-      const choices = Object.values(drafts).filter((draft) => draft.selected).map(({ selected: _, ...choice }) => choice);
+      const choices = Object.values(drafts).filter((draft) => draft.selected).map(toChoice);
       const value = await api.previewImport(scan.scanId, choices, scope, projectRoot);
       if (current === revision.current) setPreview(value);
     } catch (e) { if (current === revision.current) setError(String(e)); }
@@ -80,8 +92,9 @@ export function ImportPanel({ clientId, catalogPath, scope, projectRoot, onClose
       <div className="import-route"><span>{clientId}</span><span aria-hidden="true">→</span><b>{fileName(scan?.catalogPath ?? catalogPath)}</b><span className="pill">{scope === "user" ? "全局" : "项目"}</span>{scan && !scan.catalogExists && <small>确认后新建</small>}</div>
       <div className="import-steps"><span className={!preview ? "active" : ""}>1 选择与映射</span><span aria-hidden="true">→</span><span className={preview ? "active" : ""}>2 预览并保存</span></div>
       <details className="import-locations"><summary>来源与目标文件</summary><p>来源：<code>{scan?.sourcePath ?? "扫描中…"}</code></p><p>目标：<code>{scan?.catalogPath ?? catalogPath}</code></p></details>
-      <Banner>源 Agent 文件保持不变。普通地址、包名、目录和参数原样导入；仅凭据需要填写环境变量名，不要填写密钥值。
+      <Banner>源 Agent 文件保持不变。普通地址、包名、目录和参数原样导入；凭据默认原样复制到配置库，也可改为映射环境变量（只填写变量名）。
         原环境变量引用会保留。导入不会创建变量或检查变量值，也不会分发到其他 Agent。</Banner>
+      <Banner tone="warn">原样复制的凭据会以明文保存在配置库及其备份中，请勿将配置库提交到代码仓库或分享给他人。</Banner>
       {error && <Banner tone="danger">{error}</Banner>}
       <fieldset disabled={busy || committing} className="import-fields">
         {scan?.items.map((item) => {
@@ -100,8 +113,12 @@ export function ImportPanel({ clientId, catalogPath, scope, projectRoot, onClose
               {draft.action === "rename" && <label>新名称 <input className="input" aria-label={`目标名称 ${item.name}`} value={draft.targetName} onChange={(e) => patch(item.name, { targetName: e.target.value })} /></label>}</div>
               {draft.action !== "skip" && item.fields.map((field) => <label className="import-mapping" key={field.id}>
                 <span>{field.label} <small className="muted">原值已隐藏</small></span>
-                <input className="input mono" aria-label={`环境变量 ${item.name} ${field.id}`} autoComplete="off" spellCheck={false}
-                  placeholder="例如 MCP_SERVICE_VALUE" value={draft.bindings[field.id]} onChange={(e) => patch(item.name, { bindings: { ...draft.bindings, [field.id]: e.target.value } })} />
+                <select className="select" aria-label={`凭据处理 ${item.name} ${field.id}`} value={draft.modes[field.id]}
+                  onChange={(e) => patch(item.name, { modes: { ...draft.modes, [field.id]: e.target.value as FieldMode } })}>
+                  <option value="copy">原样复制</option><option value="env">映射环境变量</option>
+                </select>
+                {draft.modes[field.id] === "env" && <input className="input mono" aria-label={`环境变量 ${item.name} ${field.id}`} autoComplete="off" spellCheck={false}
+                  placeholder="例如 MCP_SERVICE_VALUE" value={draft.bindings[field.id]} onChange={(e) => patch(item.name, { bindings: { ...draft.bindings, [field.id]: e.target.value } })} />}
               </label>)}
             </>}
           </article>;
@@ -115,7 +132,7 @@ export function ImportPanel({ clientId, catalogPath, scope, projectRoot, onClose
         {preview.changes.map((change) => <details key={change.targetName} open>
           <summary>{LABEL[change.action]} · {change.sourceName} → {change.targetName}</summary>
           {change.before !== null && <><h4>原条目（凭据已隐藏）</h4><pre>{JSON.stringify(change.before, null, 2)}</pre></>}
-          <h4>导入后（凭据使用变量引用）</h4><pre>{JSON.stringify(change.after, null, 2)}</pre>
+          <h4>导入后（凭据已隐藏；原样复制的值按原文写入）</h4><pre>{JSON.stringify(change.after, null, 2)}</pre>
         </details>)}
         {replacing && <Banner tone="warn"><label><input type="checkbox" checked={acknowledged} onChange={(e) => setAcknowledged(e.target.checked)} />
           我确认替换所列同名条目的全部字段，包括原有平台覆盖；写入前保留原文备份。</label></Banner>}
