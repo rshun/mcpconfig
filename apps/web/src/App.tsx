@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, isMock } from "./api";
 import { selectionFromCells } from "./selection";
 import { fileName } from "./library";
+import { ACCENT_PRESETS, readInitialAccent, readInitialTheme, type AccentId, type ThemeMode } from "./theme";
 import type { AppInfoDto, BackupDto, CatalogDto, ClientDto, GuiSettings, MatrixDto, MergeMode, PlanDto, PlanInput, ReceiptDto, Scope } from "./types";
 import type { Entry } from "./pages/Catalog";
 import { MatrixPage } from "./pages/Matrix";
@@ -54,6 +55,35 @@ export default function App() {
   const [writing, setWriting] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  const [theme, setTheme] = useState<ThemeMode>(readInitialTheme);
+  const [accent, setAccent] = useState<AccentId>(readInitialAccent);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const paletteRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem("mcp-hub-theme", theme); } catch { /* ignore */ }
+  }, [theme]);
+  useEffect(() => {
+    document.documentElement.dataset.accent = accent;
+    try { localStorage.setItem("mcp-hub-accent", accent); } catch { /* ignore */ }
+  }, [accent]);
+  useEffect(() => {
+    if (!paletteOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (paletteRef.current && !paletteRef.current.contains(event.target as Node)) setPaletteOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPaletteOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [paletteOpen]);
+
   const readRevision = useRef(0);
   const planRevision = useRef(0);
   const previewId = useRef<string | null>(null);
@@ -65,6 +95,7 @@ export default function App() {
   const contextReady = settingsValid && (scope === "user" || !!project);
   const busy = writing || !settingsValid;
   const contextLocked = busy || dirty || overlay !== null;
+  const currentAccent = ACCENT_PRESETS.find((item) => item.id === accent) ?? ACCENT_PRESETS[0];
 
   const invalidatePlan = useCallback(() => {
     planRevision.current++;
@@ -75,7 +106,7 @@ export default function App() {
   function canLeave() { return !dirty || window.confirm("有未保存的修改，确认放弃这些修改？"); }
   function navigate(next: Page) {
     if (writing || !canLeave()) return;
-    invalidatePlan(); setDirty(false); setPage(next); setOverlay(null); setFeedback(null);
+    invalidatePlan(); setDirty(false); setPage(next); setOverlay(null); setFeedback(null); setPaletteOpen(false);
   }
   function closeOverlay() {
     if (writing || !canLeave()) return;
@@ -84,7 +115,7 @@ export default function App() {
   }
   function openOverlay(value: Exclude<Overlay, null>) {
     if (writing || !settingsValid || !canLeave()) return;
-    invalidatePlan(); setDirty(false); setOverlay(value);
+    invalidatePlan(); setDirty(false); setOverlay(value); setPaletteOpen(false);
   }
   function openEditor(entry: Entry | null) { if (!busy) { setFeedback(null); openOverlay({ kind: "editor", entry }); } }
   const refresh = useCallback(async (path: string, currentScope: Scope, root: string | null) => {
@@ -202,6 +233,46 @@ export default function App() {
         {scope === "project" && <button className={`btn project-button${!project ? " needs-project" : ""}`} aria-label="选择项目目录" disabled={contextLocked} onClick={() => openOverlay({ kind: "project" })}><Icon name="folder" size={16} />{project ? fileName(project) : "选择项目目录"}</button>}
       </div>}
       {isMock && <span className="pill warn">演示数据</span>}
+      <div className="theme-picker" ref={paletteRef}>
+        <button
+          className={`btn ghost icon-button palette-trigger${paletteOpen ? " active" : ""}`}
+          aria-label="切换主题配色"
+          title={`主题配色：${currentAccent.label}`}
+          aria-expanded={paletteOpen}
+          onClick={() => setPaletteOpen((prev) => !prev)}
+        >
+          <Icon name="palette" />
+          <span className="palette-dot" style={{ background: currentAccent.swatch }} aria-hidden="true" />
+        </button>
+        {paletteOpen && (
+          <div className="theme-popover" role="dialog" aria-label="界面主题配色">
+            <div className="theme-popover-section">
+              <span className="theme-popover-title">外观模式</span>
+              <div className="theme-mode-switch">
+                <button className={`theme-mode-btn${theme === "light" ? " active" : ""}`} onClick={() => setTheme("light")}><Icon name="sun" size={15} />浅色</button>
+                <button className={`theme-mode-btn${theme === "dark" ? " active" : ""}`} onClick={() => setTheme("dark")}><Icon name="moon" size={15} />深色</button>
+              </div>
+            </div>
+            <div className="theme-popover-section">
+              <span className="theme-popover-title">主题色调</span>
+              <div className="accent-grid">
+                {ACCENT_PRESETS.map((item) => (
+                  <button
+                    key={item.id}
+                    className={`accent-chip${accent === item.id ? " active" : ""}`}
+                    onClick={() => setAccent(item.id)}
+                    aria-pressed={accent === item.id}
+                  >
+                    <span className="accent-swatch" style={{ background: item.swatch }} aria-hidden="true" />
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+      <button className="btn ghost icon-button" aria-label={theme === "dark" ? "切换到浅色外观" : "切换到深色外观"} title={theme === "dark" ? "切换到浅色外观" : "切换到深色外观"} onClick={() => setTheme((prev) => prev === "dark" ? "light" : "dark")}><Icon name={theme === "dark" ? "sun" : "moon"} /></button>
       <button className="btn ghost icon-button" aria-label="刷新配置与状态" title="刷新配置与状态" disabled={contextLocked || loading} onClick={() => refresh(catalogPath, scope, projectRoot)}><Icon name="refresh" /></button>
     </header>
     <div className={`content${page === "library" ? " library-content" : ""}`}>
@@ -224,7 +295,7 @@ export default function App() {
         setWriting(true); setFeedback(null); try { const restored = await api.restore(id); await refresh(catalogPath, scope, projectRoot); await loadBackups(); setReceipt(null); setFeedback({ tone: "ok", text: `已恢复 ${restored} 个文件，请在目标 Agent 中核对配置。` }); }
         catch (e) { setFeedback({ tone: "danger", text: String(e) }); } finally { setWriting(false); }
       }} />}
-      {page === "settings" && settings && <SettingsPage key={settingsValid ? "valid" : "recovery"} settings={settings} dataDir={info?.dataDir ?? "~/.mcp-hub"} onDirty={setDirty} onBusy={setWriting} onSave={async (value) => {
+      {page === "settings" && settings && <SettingsPage key={settingsValid ? "valid" : "recovery"} settings={settings} dataDir={info?.dataDir ?? "~/.mcp-hub"} theme={theme} accent={accent} onThemeChange={setTheme} onAccentChange={setAccent} onDirty={setDirty} onBusy={setWriting} onSave={async (value) => {
         const warnings = await api.saveSettings(value); setSettings(value); setSettingsValid(true); setDirty(false); invalidatePlan();
         if (!settingsValid) { setCatalogPath(value.catalogPath); setScope(value.defaultScope); setProject(value.lastProjectDir); setMode(value.defaultMode); await refresh(value.catalogPath, value.defaultScope, value.lastProjectDir); }
         await loadBackups(); setFeedback({ tone: warnings.length ? "warn" : "ok", text: warnings.length ? warnings.join("；") : "设置已保存。默认配置库、范围和写入策略将在下次启动时使用；当前工作范围保持不变。" });

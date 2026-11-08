@@ -1,10 +1,31 @@
 import { useState } from "react";
 import { api } from "../api";
+import { ACCENT_PRESETS, type AccentId, type ThemeMode } from "../theme";
 import type { GuiSettings } from "../types";
+import { Icon } from "../components/Icon";
 import { Banner, Field } from "../components/ui";
 
-export function SettingsPage({ settings, dataDir, onSave, onDirty, onBusy }: { settings: GuiSettings; dataDir: string;
-  onSave: (settings: GuiSettings) => Promise<void>; onDirty: (dirty: boolean) => void; onBusy: (busy: boolean) => void }) {
+export function SettingsPage({
+  settings,
+  dataDir,
+  theme = "light",
+  accent = "ocean",
+  onThemeChange,
+  onAccentChange,
+  onSave,
+  onDirty,
+  onBusy,
+}: {
+  settings: GuiSettings;
+  dataDir: string;
+  theme?: ThemeMode;
+  accent?: AccentId;
+  onThemeChange?: (next: ThemeMode) => void;
+  onAccentChange?: (next: AccentId) => void;
+  onSave: (settings: GuiSettings) => Promise<void>;
+  onDirty: (dirty: boolean) => void;
+  onBusy: (busy: boolean) => void;
+}) {
   const [draft, setDraft] = useState(settings);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -17,7 +38,7 @@ export function SettingsPage({ settings, dataDir, onSave, onDirty, onBusy }: { s
     catch (e) { setMessage(`保存失败：${String(e)}`); }
     finally { setSaving(false); onBusy(false); }
   }
-  return <><div className="eyebrow">APPLICATION PREFERENCES</div><h1>软件设置</h1><p className="sub">设置默认行为，与当前任务的全局配置、项目配置相互独立。</p>
+  return <><div className="eyebrow">APPLICATION PREFERENCES</div><h1>软件设置</h1><p className="sub">设置默认行为与界面外观，与当前任务的全局配置、项目配置相互独立。</p>
     {message && <Banner tone={message.startsWith("保存失败") ? "danger" : "ok"}>{message}</Banner>}
     <div className="panel settings-panel"><div className="panel-head">启动与存储</div><div className="panel-body"><fieldset disabled={saving} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <Field label="默认配置库文件"><input aria-label="默认配置库文件" className="input" value={draft.catalogPath} onChange={(e) => patch({ catalogPath: e.target.value })} /></Field>
@@ -31,5 +52,35 @@ export function SettingsPage({ settings, dataDir, onSave, onDirty, onBusy }: { s
         <option value="merge">字段合并 · 保留其他字段</option><option value="replace">整条替换 · 替换选中的同名 MCP</option></select></Field>
       <div className="detail-note">设置文件：<span className="mono">{dataDir}/settings.json</span><br />上次项目：<span className="mono">{draft.lastProjectDir ?? "尚未选择"}</span></div>
       <button className="btn primary" disabled={saving} onClick={save}>{saving ? "保存中…" : "保存软件设置"}</button>
-    </fieldset></div></div></>;
+    </fieldset></div></div>
+    {onThemeChange && onAccentChange && (
+      <div className="panel settings-panel">
+        <div className="panel-head">外观与主题色</div>
+        <div className="panel-body">
+          <Field label="明暗外观">
+            <div className="theme-mode-switch settings-mode-switch">
+              <button type="button" className={`theme-mode-btn${theme === "light" ? " active" : ""}`} onClick={() => onThemeChange("light")}><Icon name="sun" size={15} />浅色外观</button>
+              <button type="button" className={`theme-mode-btn${theme === "dark" ? " active" : ""}`} onClick={() => onThemeChange("dark")}><Icon name="moon" size={15} />深色外观</button>
+            </div>
+          </Field>
+          <Field label="主题色调">
+            <div className="settings-accent-grid">
+              {ACCENT_PRESETS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`settings-accent-card${accent === item.id ? " active" : ""}`}
+                  onClick={() => onAccentChange(item.id)}
+                  aria-pressed={accent === item.id}
+                >
+                  <span className="accent-swatch large" style={{ background: item.swatch }} aria-hidden="true" />
+                  <span><b>{item.label}</b><small>{item.desc}</small></span>
+                </button>
+              ))}
+            </div>
+          </Field>
+          <p className="muted">切换后立即生效并自动记住，也可随时通过右上角调色盘快速切换。</p>
+        </div>
+      </div>
+    )}</>;
 }

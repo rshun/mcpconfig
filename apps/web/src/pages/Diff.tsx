@@ -1,3 +1,4 @@
+import { AgentBadge } from "../components/AgentBadge";
 import { Icon } from "../components/Icon";
 import { Banner, Pill } from "../components/ui";
 import type { FileDto, MergeMode, PlanDto } from "../types";
@@ -22,7 +23,7 @@ export function DiffPage({ plan, error, applying, onApply, onBack, mode, onModeC
       {!!plan.missingVars.length && <Banner tone="warn"><div><b>存在未解析的变量</b><p>写入会保留占位符，请核对目标运行环境：<span className="mono">{plan.missingVars.join("、")}</span></p></div></Banner>}
       {!!plan.skipped.length && <Banner tone="warn"><div><b>已跳过 {plan.skipped.length} 个 Agent</b>{plan.skipped.map((item) => <p key={item.clientId}>{item.clientId}：{item.reason}</p>)}</div></Banner>}
       {!writable.length && <Banner tone={blocked.length || plan.skipped.length ? "warn" : "ok"}>{blocked.length || plan.skipped.length ? "本次没有可写入的目标，请检查阻止和跳过原因。" : "目标内容已一致，本次无需写入。"}</Banner>}
-      <div className="file-plans">{plan.files.map((file) => <article className={`file-plan${file.blocked ? " blocked" : ""}`} key={`${file.path}:${file.clientId}`}><div className="file-plan-head"><Icon name="folder" size={19} /><b>{file.clientName}</b><div className="spacer" /><Pill tone={file.blocked ? "warn" : file.willWrite ? "ok" : "plain"}>{file.blocked ? "已阻止" : file.willWrite ? file.existed ? "更新" : "新建" : "无变化"}</Pill></div>
+      <div className="file-plans">{plan.files.map((file) => <article className={`file-plan${file.blocked ? " blocked" : ""}`} key={`${file.path}:${file.clientId}`}><div className="file-plan-head"><AgentBadge clientId={file.clientId} size="md" /><b>{file.clientName}</b><div className="spacer" /><Pill tone={file.blocked ? "warn" : file.willWrite ? "ok" : "plain"}>{file.blocked ? "已阻止" : file.willWrite ? file.existed ? "更新" : "新建" : "无变化"}</Pill></div>
         <code className="actual-file-path">{file.path}</code><div className="file-plan-meta"><span>{file.scope === "user" ? "全局配置" : file.scope === "project" ? "项目配置" : "本地配置"}</span><span>{file.format}</span><span>新增 {file.newCount} · 更新 {file.updateCount} · 保持 {file.unchangedCount}</span></div>
         {file.blocked && <Banner tone="warn">{file.blocked}</Banner>}
         {file.warnings.map((warning) => <Banner tone="warn" key={warning}>{warning}</Banner>)}
