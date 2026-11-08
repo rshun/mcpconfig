@@ -307,7 +307,7 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
     }
     case "app_info":
       return {
-        version: "0.3.0",
+        version: "0.5.0",
         platform: "windows",
         home: "C:/Users/Chensh",
         projectRoot: "C:/Dev/mcpconfig",
@@ -320,7 +320,7 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
         const block = !s.scopes.includes(scope)
           ? `${name} 不支持${scope === "user" ? "用户级" : scope === "project" ? "项目级" : "本地级"}`
           : null;
-        const known = ["claude-code", "codex", "kimi-code", "opencode", "cline", "antigravity", "grok"];
+        const known = ["claude-code", "codex", "workbuddy", "cursor", "kimi-code", "opencode", "cline", "antigravity", "grok"];
         return {
           id,
           name,

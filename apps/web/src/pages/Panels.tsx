@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { BackupDto, ClientDto, ExistingConfigDto, ImportResult, ReceiptDto, Scope } from "../types";
 import { Banner, Empty, Pill } from "../components/ui";
+import { AgentBadge } from "../components/AgentBadge";
 import { Dialog } from "../components/Dialog";
 import { Icon } from "../components/Icon";
 import { ImportPanel } from "./Import";
@@ -32,7 +33,7 @@ export function DetectPage({ clients, scope, projectRoot, catalogPath, loading, 
   function agentCard(client: ClientDto) {
     return <button key={client.id} className={`agent-choice${active === client.id ? " active" : ""}`} aria-label={`查看 ${client.name} 配置`} aria-pressed={active === client.id}
       disabled={!!client.scopeBlock || !!importClient || busy} onClick={() => readConfig(client.id)}>
-      <span className="agent-avatar"><Icon name="agents" size={20} /></span><span><b>{client.name}</b><small>{client.scopeBlock || (client.configured ? `${client.configured} 项已有配置` : client.state === "missing" ? "未检测到 · 可提前配置" : "尚无 MCP 配置")}</small></span><Icon name="chevron" size={15} />
+      <AgentBadge clientId={client.id} size="lg" /><span><b>{client.name}</b><small>{client.scopeBlock || (client.configured ? `${client.configured} 项已有配置` : client.state === "missing" ? "未检测到 · 可提前配置" : "尚无 MCP 配置")}</small></span><Icon name="chevron" size={15} />
     </button>;
   }
   return <section className="agents-page"><header className="page-heading"><div><span className="eyebrow">YOUR AGENTS</span><h1>Agents</h1><p className="sub">查看已有配置，安全导入到你的 MCP 库。</p></div><span className="quiet-caption"><Icon name="shield" size={16} />读取不会修改文件</span></header>
@@ -43,7 +44,7 @@ export function DetectPage({ clients, scope, projectRoot, catalogPath, loading, 
     </aside><div className="agent-config-area">
       {error && <Banner tone="danger">{error}</Banner>}
       {reading ? <div className="panel read-placeholder" role="status"><span className="loading-orbit" /><h3>正在读取已有 MCP</h3><p>识别到的凭据会在返回界面前隐藏。</p></div>
-      : config ? <section className="panel existing-config" aria-label="已有 MCP 配置"><div className="panel-head"><div><span className="eyebrow">EXISTING CONFIGURATION</span><h2>{config.clientName}</h2></div><span className="pill">{config.format}</span><div className="spacer" />
+      : config ? <section className="panel existing-config" aria-label="已有 MCP 配置"><div className="panel-head"><AgentBadge clientId={config.clientId} size="lg" /><div><span className="eyebrow">EXISTING CONFIGURATION</span><h2>{config.clientName}</h2></div><span className="pill">{config.format}</span><div className="spacer" />
         <button className="btn primary" disabled={!!importClient || !catalogPath || !config.existed || !config.entries.length || busy} onClick={() => setImportClient(config.clientId)}><Icon name="import" size={16} />导入到 MCP 库</button></div>
         <div className="panel-body"><div className="source-path"><span>来源文件</span><code>{config.path}</code></div><p className="field-hint">{config.entries.length} 个 MCP · 配置文件状态，不代表连接已验证</p>
           {!config.existed ? <Empty title="配置文件尚不存在" hint="可以先在 MCP 库添加配置，再应用到这个 Agent。" /> : !config.entries.length ? <Empty title="配置文件中没有 MCP 条目" /> : config.entries.map((entry) => <details className="existing-entry" key={entry.name}><summary><span className="entry-dot" />{entry.name}<span className="muted">查看配置（凭据隐藏）</span></summary><pre>{JSON.stringify(entry.config, null, 2)}</pre></details>)}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { AgentBadge } from "../components/AgentBadge";
 import { Icon } from "../components/Icon";
 import { scopeLabel, scopeReason, variableNames } from "../library";
 import { selectionFromCells } from "../selection";
@@ -31,6 +32,7 @@ export function LibraryPage({ entries, matrix, clients, scope, selected, focus, 
     return <label className={`agent-target${selected.has(key) ? " chosen" : ""}${reason ? " unavailable" : ""}`} key={client.id}>
       <input type="checkbox" aria-label={`${current.name} → ${client.name}`} checked={selected.has(key)}
         disabled={!!reason || !cell || blocked} onChange={() => onToggle(key)} />
+      <AgentBadge clientId={client.id} size="md" />
       <span className="agent-target-copy"><b>{client.name}</b><small>{reason ?? (cell ? CELL[cell.state] : "尚未读取此范围的配置")}</small></span>
       {cell?.state === "ok" && <Icon name="check" size={15} />}
     </label>;
@@ -60,13 +62,14 @@ export function LibraryPage({ entries, matrix, clients, scope, selected, focus, 
             {list.map((item) => {
               const row = matrix?.rows.find((row) => row.name === item.name);
               const present = row?.cells.filter((cell) => cell.state === "ok" || cell.state === "diff") ?? [];
+              const hasDiff = present.some((cell) => cell.state === "diff");
               const reason = scopeReason(item, scope);
               return <tr key={item.name} className={entry?.name === item.name ? "focused" : ""}>
                 <td><button className="entry-name" onClick={() => onFocus(item.name)} aria-label={`查看 ${item.name}`} aria-pressed={entry?.name === item.name}>
                   <span className={`entry-symbol ${item.transport === "stdio" ? "local" : "remote"}`}><Icon name={item.transport === "stdio" ? "command" : "globe"} size={20} /></span>
                   <span><b>{item.name}</b><small>{item.description || (item.transport === "stdio" ? "本地命令" : "远程服务")}<span className="meta-divider">·</span>{item.transport}</small></span></button></td>
                 <td><span className={`scope-tag${reason ? " restricted" : ""}`}>{scopeLabel(item)}</span></td>
-                <td><div className="row-status">{reason ? <span className="muted">需切换范围</span> : !row ? <span className="muted">尚未读取</span> : present.length ? <><span className="status-dot" />已配置于 {present.length} 个 Agent</> : <span className="muted">尚未分发</span>}
+                <td><div className="row-status">{reason ? <span className="muted">需切换范围</span> : !row ? <span className="muted">尚未读取</span> : present.length ? <span className="row-status-line"><span className="agent-stack">{present.slice(0, 5).map((cell) => <AgentBadge key={cell.clientId} clientId={cell.clientId} size="sm" />)}</span><span className={`status-dot${hasDiff ? " warn" : ""}`} />已配置于 {present.length} 个 Agent</span> : <span className="muted">尚未分发</span>}
                   {selectedNames.has(item.name) && <small className="selected-note">已加入本次变更</small>}</div></td>
                 <td><button className="btn ghost row-action" aria-label={`分发 ${item.name}`} onClick={() => onFocus(item.name)}>选择目标<Icon name="chevron" size={15} /></button></td>
               </tr>;
@@ -74,7 +77,7 @@ export function LibraryPage({ entries, matrix, clients, scope, selected, focus, 
           </tbody></table>{!list.length && <div className="empty-search"><h3>没有匹配的配置</h3><button className="text-button" onClick={() => setQuery("")}>清除搜索</button></div>}
           </div>
           {entry && <aside ref={inspector} className="entry-inspector" aria-label={`${entry.name} 的配置与分发`}>
-            <div className="inspector-title"><span className="eyebrow">CONFIGURATION</span><button className="btn ghost icon-button small" aria-label="收起配置详情" onClick={() => onFocus(null)}><Icon name="close" size={16} /></button></div>
+            <div className="inspector-title"><span className="inspector-kicker">配置详情</span><button className="btn ghost icon-button small" aria-label="收起配置详情" onClick={() => onFocus(null)}><Icon name="close" size={16} /></button></div>
             <h2>{entry.name}</h2><p className="muted inspector-description">{entry.description || "统一管理，按需应用到不同 Agent。"}</p>
             <div className="inspector-meta"><span>{entry.transport === "stdio" ? "本地命令" : "远程服务"}</span><span>{scopeLabel(entry)}</span></div>
             <button className="btn edit-entry" onClick={() => onEdit(entry)} disabled={blocked}><Icon name="edit" size={16} />编辑配置</button>

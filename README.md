@@ -4,7 +4,7 @@
 
 把一份客户自维护的清单，按各客户端的原生格式写入 14 个 MCP 客户端——不用手工配 M×N×K 次。
 
-当前版本：**v0.4.4**。本版导入时识别到的凭据默认原样复制到配置库，也可逐个字段改为环境变量映射；扫描和预览中凭据保持隐藏。使用及回退见 [发布说明](docs/releases/v0.4.4.md)。
+当前版本：**v0.5.0**。本版全面升级图形界面视觉设计，补齐 14 款 Agent 官方品牌图标，并新增 6 套界面主题色调与浅色/深色外观切换。使用及回退见 [发布说明](docs/releases/v0.5.0.md)。
 
 ## 现在的状态
 
@@ -54,12 +54,12 @@ cargo run -p mcp-io --example end_to_end
 
 ## 图形界面
 
-Windows 用户可下载 [GUI 安装程序](https://github.com/rshun/mcpconfig/releases/download/v0.4.4/MCP.Hub_0.4.4_x64-setup.exe)，
-或 [GUI 免安装 ZIP](https://github.com/rshun/mcpconfig/releases/download/v0.4.4/MCP.Hub_0.4.4_windows-x64-portable.zip)。
+Windows 用户可下载 [GUI 安装程序](https://github.com/rshun/mcpconfig/releases/download/v0.5.0/MCP.Hub_0.5.0_x64-setup.exe)，
+或 [GUI 免安装 ZIP](https://github.com/rshun/mcpconfig/releases/download/v0.5.0/MCP.Hub_0.5.0_windows-x64-portable.zip)。
 ZIP 完整解压后运行 `MCP.Hub.exe`；它使用系统已有的 [Microsoft WebView2 Runtime](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)，缺少时需先安装运行时。
 配置与备份仍使用用户目录，详见 [免安装说明](docs/WINDOWS-PORTABLE.txt)。`mcp-hub-cli-v*-windows-x64.zip` 是独立 CLI 包。
 
-macOS（Apple Silicon）用户可下载 [GUI 安装包](https://github.com/rshun/mcpconfig/releases/download/v0.4.4/MCP.Hub_0.4.4_macos-arm64.dmg)，即 `MCP.Hub_<版本>_macos-arm64.dmg`（v0.4.2 及更早为 `MCP.Hub_<版本>_aarch64.dmg`），
+macOS（Apple Silicon）用户可下载 [GUI 安装包](https://github.com/rshun/mcpconfig/releases/download/v0.5.0/MCP.Hub_0.5.0_macos-arm64.dmg)，即 `MCP.Hub_<版本>_macos-arm64.dmg`（v0.4.2 及更早为 `MCP.Hub_<版本>_aarch64.dmg`），
 打开后把 **MCP Hub** 拖入「应用程序」。`mcp-hub-cli-*` / `mcp-hub-v*-macos-arm64.tar.gz` 是命令行包，解压后双击会打开终端。
 从 v0.4.3 起 macOS 应用使用 ad-hoc 签名（非 Apple 开发者证书、未公证），首次打开会提示“无法验证开发者”：
 点「完成」后到「系统设置 → 隐私与安全性」点「仍要打开」，之后可直接启动，无需执行 `xattr`。
