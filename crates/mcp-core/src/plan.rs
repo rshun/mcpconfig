@@ -5,11 +5,12 @@
 
 use crate::adapters::{Adapter, Format};
 use crate::diff::{self, DiffLine};
-use crate::document::{merge_json, ConfigDoc};
-pub use crate::document::{ChangeKind, MergeMode};
+pub use crate::document::{ChangeKind, ManagedKeys, MergeMode};
+use crate::document::{reconcile_entry, ConfigDoc};
 use crate::error::Result;
 use crate::model::{McpEntry, Scope};
 use serde_json::Value;
+use std::collections::BTreeMap;
 
 /// 单条目的变更明细。
 #[derive(Debug, Clone, PartialEq)]
@@ -20,6 +21,8 @@ pub struct EntryChange {
     pub before: Option<Value>,
     /// 本次将写入的内容（合并后的最终值）
     pub after: Value,
+    /// 本次由适配器编码生成的纯键骨架（不含用户未托管手写键，不含任何密钥值）
+    pub managed_keys: ManagedKeys,
 }
 
 /// 一个目标文件的完整计划。
@@ -30,6 +33,8 @@ pub struct FilePlan {
     pub scope: Scope,
     pub path: String,
     pub format: Format,
+    /// 该文件内实际操作的容器根路径（例如 `["mcpServers"]` 或 `["projects", "<proj>", "mcpServers"]`）
+    pub root_key: Vec<String>,
     /// 目标文件此前是否存在
     pub existed: bool,
     /// 非空表示本次不写该文件（含原因）
@@ -39,6 +44,13 @@ pub struct FilePlan {
     pub new_content: String,
     pub line_diff: Vec<DiffLine>,
     pub warnings: Vec<String>,
+}
+
+/// 单文件规划高级选项（支持动态容器根键与三方合并键骨架基线）。
+#[derive(Debug, Clone, Default)]
+pub struct PlanFileOptions<'a> {
+    pub root_key_override: Option<&'a [String]>,
+    pub managed_entries: Option<&'a BTreeMap<String, ManagedKeys>>,
 }
 
 impl FilePlan {
@@ -95,7 +107,7 @@ impl FilePlan {
     }
 }
 
-/// 规划单个文件。
+/// 规划单个文件（默认选项）。
 #[allow(clippy::too_many_arguments)]
 pub fn plan_file(
     adapter: &dyn Adapter,
@@ -106,10 +118,38 @@ pub fn plan_file(
     mode: MergeMode,
     allow_comment_strip: bool,
 ) -> Result<FilePlan> {
+    plan_file_with_options(
+        adapter,
+        path,
+        scope,
+        existing,
+        entries,
+        mode,
+        allow_comment_strip,
+        &PlanFileOptions::default(),
+    )
+}
+
+/// 规划单个文件（支持自定义容器路径与三方合并托管键骨架）。
+#[allow(clippy::too_many_arguments)]
+pub fn plan_file_with_options(
+    adapter: &dyn Adapter,
+    path: impl Into<String>,
+    scope: Scope,
+    existing: Option<&str>,
+    entries: &[McpEntry],
+    mode: MergeMode,
+    allow_comment_strip: bool,
+    opts: &PlanFileOptions<'_>,
+) -> Result<FilePlan> {
     let path = path.into();
     let format = adapter.format_for_path(std::path::Path::new(&path));
     let existed = existing.is_some();
     let old_content = existing.unwrap_or("").to_string();
+    let root = match opts.root_key_override {
+        Some(r) => r.to_vec(),
+        None => adapter.root_key_for_path(scope, std::path::Path::new(&path)),
+    };
 
     let mut plan = FilePlan {
         client_id: adapter.id().to_string(),
@@ -117,6 +157,7 @@ pub fn plan_file(
         scope,
         path,
         format,
+        root_key: root.clone(),
         existed,
         blocked: None,
         changes: Vec::new(),
@@ -135,17 +176,6 @@ pub fn plan_file(
         return Ok(plan);
     }
 
-    // JSONC 注释保护：一旦重写会丢注释，默认拒绝
-    if matches!(format, Format::Jsonc)
-        && crate::document::has_jsonc_features(&old_content)
-        && !allow_comment_strip
-    {
-        plan.blocked = Some(
-            "该文件含注释或尾逗号，自动重写会丢失注释；确认后可允许去除注释再写入".to_string(),
-        );
-        return Ok(plan);
-    }
-
     let mut doc = match ConfigDoc::parse(format, old_content.trim_start_matches('\u{feff}')) {
         Ok(d) => d,
         Err(e) => {
@@ -154,40 +184,54 @@ pub fn plan_file(
         }
     };
 
-    let root = adapter.root_key_for_path(scope, std::path::Path::new(&plan.path));
-    let mut inline_secrets = 0usize;
+    let mut unresolved_vars: Vec<String> = Vec::new();
 
     for entry in entries {
-        let encoded = adapter.encode_entry(entry)?;
-        inline_secrets += count_inline_placeholders(&encoded);
+        let encoded = adapter.encode_entry_checked(entry)?;
+        unresolved_vars.extend(encoded.unresolved_inline_secrets.iter().cloned());
 
+        let prev_managed = opts.managed_entries.and_then(|m| m.get(&entry.name));
         let before = doc.get(&root, &entry.name);
-        let kind = doc.upsert(&root, &entry.name, &encoded, mode)?;
-
-        // 合并后的最终值（用于 UI 展示）
-        let after = match (&before, kind, mode) {
-            (Some(old), ChangeKind::Unchanged, _) => old.clone(),
-            (Some(old), _, MergeMode::Merge) => merge_json(old, &encoded),
-            _ => encoded.clone(),
-        };
+        let (after, _) = reconcile_entry(before.as_ref(), &encoded.value, mode, prev_managed);
+        let kind = doc.upsert_with_managed(&root, &entry.name, &encoded.value, mode, prev_managed)?;
 
         plan.changes.push(EntryChange {
             name: entry.name.clone(),
             kind,
             before,
             after,
+            managed_keys: ManagedKeys::from_value(&encoded.value),
         });
+    }
+
+    // 仅当被覆盖的条目区间内部自身包含注释且用户未授权剥离时，才阻断写入
+    if doc.lost_comments() && !allow_comment_strip {
+        plan.blocked = Some(
+            "目标条目内部含注释，自动重写会丢失该注释；确认后可允许去除注释再写入".to_string(),
+        );
+        return Ok(plan);
+    }
+
+    if !unresolved_vars.is_empty() {
+        unresolved_vars.sort();
+        unresolved_vars.dedup();
+        let joined = unresolved_vars.join(", ");
+        plan.warnings.push(format!(
+            "{} 处密钥需内联（{}），客户端不支持变量展开或当前作用域禁止明文落盘",
+            unresolved_vars.len(),
+            joined
+        ));
+        plan.blocked = Some(format!(
+            "未解析的内联密钥（{joined}）：{} 不支持环境变量引用或项目级配置禁止落盘明文密钥，已阻止写入",
+            adapter.display_name()
+        ));
+        return Ok(plan);
     }
 
     plan.new_content = doc.render();
     let (old, new) = plan.display_texts();
     plan.line_diff = diff::line_diff(&old, &new);
 
-    if inline_secrets > 0 {
-        plan.warnings.push(format!(
-            "{inline_secrets} 处密钥需内联（该客户端不支持变量展开），按 secret_policy 处理"
-        ));
-    }
     for e in entries {
         for platform in e.overrides.keys() {
             plan.warnings
@@ -197,17 +241,6 @@ pub fn plan_file(
     plan.warnings.dedup();
 
     Ok(plan)
-}
-
-/// 统计编码结果里「需内联」占位符数量。
-fn count_inline_placeholders(v: &Value) -> usize {
-    const MARK: &str = "<需内联:";
-    match v {
-        Value::String(s) => usize::from(s.contains(MARK)),
-        Value::Array(a) => a.iter().map(count_inline_placeholders).sum(),
-        Value::Object(m) => m.values().map(count_inline_placeholders).sum(),
-        _ => 0,
-    }
 }
 
 /// 一个规划输入。
@@ -362,33 +395,52 @@ mod tests {
     }
 
     #[test]
-    fn jsonc_with_comments_is_blocked_by_default() {
+    fn jsonc_preserves_outer_comments_and_blocks_only_interior_comments() {
         let a = adapters::by_id("opencode").unwrap();
-        let existing = "{\n  // 注释\n  \"mcp\": {\"servers\": {}}\n}";
+        let outer_commented = "{\n  // 顶层注释不会丢失\n  \"mcp\": {\"servers\": {}}\n}";
         let plan = plan_file(
             a,
             "/tmp/o.jsonc",
             Scope::User,
-            Some(existing),
+            Some(outer_commented),
             &[github()],
             MergeMode::Merge,
             false,
         )
         .unwrap();
-        assert!(plan.blocked.is_some(), "含注释应默认拒绝改写");
+        assert!(plan.blocked.is_none(), "外层注释无损保留，不应误阻断");
+        assert!(plan.new_content.contains("// 顶层注释不会丢失"));
+        assert!(plan.new_content.contains("github"));
+
+        // 被覆盖的目标条目内部包含注释时，默认拒绝改写，显式开启 allow_comment_strip 后允许
+        let interior_commented =
+            "{\n  // 外部保留\n  \"mcp\": {\"servers\": {\"github\": { /* 内部注释 */ \"url\": \"old\" }}}\n}";
+        let blocked = plan_file(
+            a,
+            "/tmp/o.jsonc",
+            Scope::User,
+            Some(interior_commented),
+            &[github()],
+            MergeMode::Merge,
+            false,
+        )
+        .unwrap();
+        assert!(blocked.blocked.is_some(), "条目内部含注释应默认阻断");
+        assert!(!blocked.has_write());
 
         let allowed = plan_file(
             a,
             "/tmp/o.jsonc",
             Scope::User,
-            Some(existing),
+            Some(interior_commented),
             &[github()],
             MergeMode::Merge,
             true,
         )
         .unwrap();
         assert!(allowed.blocked.is_none());
-        assert!(allowed.new_content.contains("github"));
+        assert!(allowed.new_content.contains("// 外部保留"));
+        assert!(allowed.new_content.contains("https://api.githubcopilot.com/mcp/"));
     }
 
     #[test]
@@ -428,7 +480,7 @@ mod tests {
     }
 
     #[test]
-    fn inline_secret_warning_emitted() {
+    fn unresolved_inline_secret_blocks_write_and_emits_warning() {
         let a = adapters::by_id("workbuddy").unwrap();
         let plan = plan_file(
             a,
@@ -441,6 +493,9 @@ mod tests {
         )
         .unwrap();
         assert!(plan.warnings.iter().any(|w| w.contains("需内联")));
+        assert!(plan.blocked.is_some(), "未解析内联密钥必须阻断，禁止写出哨兵字符串");
+        assert!(!plan.has_write());
+        assert!(!plan.new_content.contains("<需内联:"));
         let _ = json!({});
     }
 

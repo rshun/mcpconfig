@@ -5,6 +5,7 @@
 use crate::dto::{
     AppInfoDto, BackupDto, CatalogDto, ClientDto, ExistingConfigDto, MatrixDto, PlanDto, ReceiptDto,
 };
+use mcp_app::catalog_session::CatalogSessions;
 use mcp_app::distribution::DistributionSessions;
 use mcp_app::importing::{ImportChoice, ImportPreview, ImportResult, ImportScan, ImportSessions};
 use mcp_app::settings::GuiSettings;
@@ -19,6 +20,7 @@ fn app() -> App {
 
 type Imports<'a> = tauri::State<'a, std::sync::Mutex<ImportSessions>>;
 type Previews<'a> = tauri::State<'a, std::sync::Mutex<DistributionSessions>>;
+type Catalogs<'a> = tauri::State<'a, std::sync::Mutex<CatalogSessions>>;
 
 #[tauri::command]
 pub fn scan_import(
@@ -59,13 +61,20 @@ pub fn commit_import(
     scope: String,
     project_root: Option<String>,
     imports: Imports<'_>,
+    catalogs: Catalogs<'_>,
 ) -> Result<ImportResult, String> {
     let app = context(parse_scope(&scope)?, project_root)?;
-    imports
+    let out = imports
         .lock()
         .map_err(|_| "导入状态不可用，请重启软件".to_string())?
         .commit(&app, &preview_id)
-        .map_err(err)
+        .map_err(err)?;
+    if let Ok(settings) = app.load_settings() {
+        if let Ok(mut guard) = catalogs.lock() {
+            guard.sync_path(std::path::Path::new(&settings.catalog_path));
+        }
+    }
+    Ok(out)
 }
 
 #[tauri::command]
@@ -106,10 +115,15 @@ pub async fn choose_directory(initial: Option<String>) -> Result<Option<String>,
 }
 
 #[tauri::command]
-pub fn create_catalog(path: String) -> Result<Vec<String>, String> {
-    context(Scope::User, None)?
-        .create_catalog(std::path::Path::new(&path))
-        .map_err(err)
+pub fn create_catalog(path: String, catalogs: Catalogs<'_>) -> Result<Vec<String>, String> {
+    let target = std::path::Path::new(&path);
+    let warnings = context(Scope::User, None)?
+        .create_catalog(target)
+        .map_err(err)?;
+    if let Ok(mut guard) = catalogs.lock() {
+        guard.sync_path(target);
+    }
+    Ok(warnings)
 }
 
 fn parse_scope(s: &str) -> Result<Scope, String> {
@@ -151,12 +165,13 @@ pub fn app_info() -> AppInfoDto {
     }
 }
 
-/// 检测本机客户端（只读）。
+/// 检测本机客户端（只读，含 `adapters.yaml` 自定义客户端）。
 #[tauri::command]
 pub fn detect(scope: String, project_root: Option<String>) -> Result<Vec<ClientDto>, String> {
     let scope = parse_scope(&scope)?;
     let a = context(scope, project_root)?;
-    Ok(mcp_app::detect_all(&a.env, a.platform, scope)
+    Ok(a.detect_all(scope)
+        .map_err(err)?
         .into_iter()
         .map(ClientDto::from)
         .collect())
@@ -190,33 +205,28 @@ pub fn matrix(
         .map_err(err)
 }
 
-/// 读取并校验清单。
+/// 读取并校验清单（敏感凭据在离开后端前隐藏为 `[已隐藏]`）。
 #[tauri::command]
-pub fn load_catalog(path: String) -> Result<CatalogDto, String> {
+pub fn load_catalog(path: String, catalogs: Catalogs<'_>) -> Result<CatalogDto, String> {
     let a = app();
-    read_catalog(&a, std::path::Path::new(&path))
+    let mut sessions = catalogs
+        .lock()
+        .map_err(|_| "配置库会话状态不可用，请重启软件".to_string())?;
+    read_catalog(&mut sessions, &a, std::path::Path::new(&path))
 }
 
-fn read_catalog(a: &App, path: &std::path::Path) -> Result<CatalogDto, String> {
-    match std::fs::metadata(path) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(CatalogDto {
-                exists: false,
-                catalog: serde_json::json!({"version": 1, "entries": []}),
-                issues: Vec::new(),
-                entry_count: 0,
-            })
-        }
-        Err(_) => return Err("无法读取配置库，请检查路径和权限".into()),
-        Ok(_) => {}
-    }
-    let (cat, issues) = a.load_catalog(path).map_err(err)?;
-    let value = serde_json::to_value(&cat).map_err(err)?;
+fn read_catalog(
+    sessions: &mut CatalogSessions,
+    a: &App,
+    path: &std::path::Path,
+) -> Result<CatalogDto, String> {
+    let loaded = sessions.load(a, path).map_err(err)?;
     Ok(CatalogDto {
-        exists: true,
-        entry_count: cat.entries.len(),
-        catalog: value,
-        issues,
+        exists: loaded.exists,
+        revision_id: Some(loaded.revision_id),
+        catalog: loaded.catalog,
+        issues: loaded.issues,
+        entry_count: loaded.entry_count,
     })
 }
 
@@ -224,7 +234,7 @@ fn read_catalog(a: &App, path: &std::path::Path) -> Result<CatalogDto, String> {
 mod catalog_tests {
     use super::*;
     #[test]
-    fn absent_library_is_an_empty_state_but_corruption_is_an_error() {
+    fn absent_library_is_an_empty_state_corruption_is_error_and_secrets_are_redacted() {
         let root = std::env::temp_dir().join(format!(
             "mcphub-desktop-catalog-{}-{}",
             std::process::id(),
@@ -243,25 +253,50 @@ mod catalog_tests {
             },
             mcp_core::Platform::current(),
         );
+        let mut sessions = CatalogSessions::default();
         let path = root.join("catalog.yaml");
-        assert!(!read_catalog(&app, &path).unwrap().exists);
+        assert!(!read_catalog(&mut sessions, &app, &path).unwrap().exists);
         assert!(!path.exists());
         assert!(!app.engine.home().exists());
         std::fs::write(&path, "broken: your_secret_here").unwrap();
-        let error = read_catalog(&app, &path).err().unwrap();
+        let error = read_catalog(&mut sessions, &app, &path).err().unwrap();
         assert!(!error.contains("your_secret_here"));
-        std::fs::write(&path, "version: 1\nentries: []\n").unwrap();
-        assert!(read_catalog(&app, &path).unwrap().exists);
+        std::fs::write(
+            &path,
+            "version: 1\nentries:\n  - name: s\n    transport: stdio\n    command: python\n    env:\n      API_KEY: your_secret_here\n",
+        )
+        .unwrap();
+        let dto = read_catalog(&mut sessions, &app, &path).unwrap();
+        assert!(dto.exists);
+        assert!(dto.revision_id.is_some());
+        let serialized = serde_json::to_string(&dto).unwrap();
+        assert!(!serialized.contains("your_secret_here"));
+        assert!(serialized.contains("[已隐藏]"));
     }
 }
 
-/// 保存清单（写回 YAML）。
+/// 保存清单（CAS 校验修订号与磁盘并发状态，自动回填未改动的 `[已隐藏]` 凭据并写回 YAML/JSON）。
 #[tauri::command]
-pub fn save_catalog(path: String, catalog: serde_json::Value) -> Result<Vec<String>, String> {
-    let cat: mcp_core::Catalog =
-        serde_json::from_value(catalog).map_err(|_| "清单字段结构无效，请检查输入".to_string())?;
-    context(Scope::User, None)?
-        .save_catalog(std::path::Path::new(&path), &cat)
+pub fn save_catalog(
+    path: String,
+    catalog: serde_json::Value,
+    revision_id: Option<String>,
+    renames: Option<BTreeMap<String, String>>,
+    catalogs: Catalogs<'_>,
+) -> Result<Vec<String>, String> {
+    let a = context(Scope::User, None)?;
+    let mut sessions = catalogs
+        .lock()
+        .map_err(|_| "配置库会话状态不可用，请重启软件".to_string())?;
+    sessions
+        .save(
+            &a,
+            std::path::Path::new(&path),
+            catalog,
+            revision_id.as_deref(),
+            renames.as_ref(),
+        )
+        .map(|out| out.warnings)
         .map_err(err)
 }
 

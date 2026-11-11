@@ -2,8 +2,9 @@
 //!
 //! 适配器**不感知**平台差异：它们只接收已 Resolve 的条目。
 
-use crate::interpolate::{interpolate_str, MissingVar, VarCtx};
-use crate::model::{Catalog, McpEntry, Platform, Scope};
+use crate::adapters::{Adapter, SecretStyle};
+use crate::interpolate::{interpolate_scoped, interpolate_str, MissingVar, VarCtx};
+use crate::model::{Auth, Catalog, McpEntry, Platform, Scope, SecretSource};
 use std::collections::BTreeMap;
 
 /// 应用平台覆盖，返回合并后的条目（不修改原条目）。
@@ -32,10 +33,136 @@ pub fn apply_platform(entry: &McpEntry, platform: Platform) -> McpEntry {
                 out.headers.insert(k.clone(), val.clone());
             }
         }
+        if let Some(v) = &ov.auth {
+            out.auth = Some(v.clone());
+        }
+        if let Some(v) = ov.timeout_seconds {
+            out.timeout_seconds = Some(v);
+        }
+        if let Some(v) = ov.enabled {
+            out.enabled = v;
+        }
     }
     // 合并后覆盖信息不再需要，避免下游误用
     out.overrides = BTreeMap::new();
     out
+}
+
+/// 面向具体目标客户端与作用域的解析（推荐在规划与矩阵漂移检测中使用）：
+/// - `Scope::Project` 仅展开路径宏并将 `${ENV:VAR}` 翻译为客户端原生语法，绝不把宿主进程密钥明文内联到受 Git 跟踪的项目文件；
+/// - `Scope::User` / `Scope::Local` 对 `LiteralOnly` 客户端按需从 `VarCtx` 解析 `auth.token_env`，若缺失则保留 `EnvRef` 交由规划阶段阻断写入。
+pub fn resolve_for_client(
+    entry: &McpEntry,
+    adapter: &dyn Adapter,
+    scope: Scope,
+    platform: Platform,
+    ctx: &VarCtx,
+) -> (McpEntry, Vec<MissingVar>) {
+    let mut out = apply_platform(entry, platform);
+    let mut missing: Vec<MissingVar> = Vec::new();
+    let inline_env = !matches!(scope, Scope::Project);
+    let env_dialect = match &adapter.spec().secret_style {
+        SecretStyle::EnvExpansion(prefix, suffix) => Some((prefix.as_ref(), suffix.as_ref())),
+        _ => None,
+    };
+
+    if let Some(cmd) = &out.command {
+        out.command = Some(interpolate_scoped(
+            cmd,
+            ctx,
+            inline_env,
+            env_dialect,
+            &mut missing,
+        ));
+    }
+    out.args = out
+        .args
+        .iter()
+        .map(|a| interpolate_scoped(a, ctx, inline_env, env_dialect, &mut missing))
+        .collect();
+    if let Some(cwd) = &out.cwd {
+        out.cwd = Some(interpolate_scoped(
+            cwd,
+            ctx,
+            inline_env,
+            env_dialect,
+            &mut missing,
+        ));
+    }
+    if let Some(url) = &out.url {
+        out.url = Some(interpolate_scoped(
+            url,
+            ctx,
+            inline_env,
+            env_dialect,
+            &mut missing,
+        ));
+    }
+    out.env = out
+        .env
+        .iter()
+        .map(|(k, v)| {
+            (
+                k.clone(),
+                interpolate_scoped(v, ctx, inline_env, env_dialect, &mut missing),
+            )
+        })
+        .collect();
+    out.headers = out
+        .headers
+        .iter()
+        .map(|(k, v)| {
+            (
+                k.clone(),
+                interpolate_scoped(v, ctx, inline_env, env_dialect, &mut missing),
+            )
+        })
+        .collect();
+
+    if inline_env {
+        match out.auth.clone() {
+            Some(Auth::Bearer {
+                token: SecretSource::EnvRef(var),
+            }) if matches!(adapter.spec().secret_style, SecretStyle::LiteralOnly) => {
+                match ctx.lookup_var(&var) {
+                    Some(val) => {
+                        out.auth = Some(Auth::Bearer {
+                            token: SecretSource::Literal(val),
+                        });
+                    }
+                    None => missing.push(MissingVar {
+                        raw: format!("${{ENV:{var}}}"),
+                        name: var,
+                    }),
+                }
+            }
+            Some(Auth::Header {
+                header,
+                prefix,
+                value: SecretSource::EnvRef(var),
+            }) if !matches!(adapter.spec().secret_style, SecretStyle::EnvExpansion(..)) => {
+                match ctx.lookup_var(&var) {
+                    Some(val) => {
+                        out.auth = Some(Auth::Header {
+                            header,
+                            prefix,
+                            value: SecretSource::Literal(val),
+                        });
+                    }
+                    None => missing.push(MissingVar {
+                        raw: format!("${{ENV:{var}}}"),
+                        name: var,
+                    }),
+                }
+            }
+            _ => {}
+        }
+    }
+
+    missing.sort_by(|a, b| a.raw.cmp(&b.raw));
+    missing.dedup_by(|a, b| a.raw == b.raw);
+
+    (out, missing)
 }
 
 /// 平台覆盖 + 插值。返回条目与未解析变量列表。

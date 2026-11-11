@@ -39,6 +39,7 @@ export default function App() {
   const [scope, setScope] = useState<Scope>("user");
   const [project, setProject] = useState<string | null>(null);
   const [mode, setMode] = useState<MergeMode>("merge");
+  const [allowCommentStrip, setAllowCommentStrip] = useState(false);
   const [info, setInfo] = useState<AppInfoDto | null>(null);
   const [matrix, setMatrix] = useState<MatrixDto | null>(null);
   const [clients, setClients] = useState<ClientDto[] | null>(null);
@@ -110,7 +111,7 @@ export default function App() {
   }
   function closeOverlay() {
     if (writing || !canLeave()) return;
-    if (overlay?.kind === "preview") invalidatePlan();
+    if (overlay?.kind === "preview") { invalidatePlan(); setAllowCommentStrip(false); }
     setOverlay(null); setDirty(false);
   }
   function openOverlay(value: Exclude<Overlay, null>) {
@@ -182,14 +183,15 @@ export default function App() {
   function changeScope(next: Scope) {
     if (contextLocked || !canLeave()) return;
     setScope(next); setFeedback(null); refresh(catalogPath, next, project);
-    if (next === "project" && !project) setOverlay({ kind: "project" });
+    if (next !== "user" && !project) setOverlay({ kind: "project" });
   }
   function changeMode(next: MergeMode) { invalidatePlan(); setMode(next); }
+  function changeAllowCommentStrip(next: boolean) { invalidatePlan(); setAllowCommentStrip(next); }
   async function makePlan() {
     if (!contextReady || !selected.size || writing || planning) return;
     invalidatePlan(); const revision = planRevision.current; const requestId = ++planningRequest.current;
     setPlanning(true); setFeedback(null);
-    const request: PlanInput = { catalogPath, selection: selectionFromCells(selected), scope, projectRoot, mode, allowCommentStrip: false };
+    const request: PlanInput = { catalogPath, selection: selectionFromCells(selected), scope, projectRoot, mode, allowCommentStrip };
     try {
       const value = await api.plan(request);
       if (!value.previewId) throw new Error("预览缺少一致性凭证，请更新配套桌面端后重新预览");
@@ -204,7 +206,7 @@ export default function App() {
     setWriting(true); setFeedback(null);
     try {
       const value = await api.apply(planRequest, false, plan.previewId); setReceipt(value);
-      setOverlay(null); await refresh(catalogPath, scope, projectRoot); await loadBackups(); setPage("history");
+      setOverlay(null); setAllowCommentStrip(false); await refresh(catalogPath, scope, projectRoot); await loadBackups(); setPage("history");
       setFeedback({ tone: value.failed || value.blocked ? "warn" : "ok", text: `已写入 ${value.written} 个文件${value.failed ? `，${value.failed} 项失败，请检查逐项结果` : value.blocked ? `，${value.blocked} 项被阻止` : "；备份可在下方恢复"}` });
     } catch (e) {
       invalidatePlan();
@@ -213,10 +215,11 @@ export default function App() {
     }
     finally { setWriting(false); }
   }
-  async function saveEntries(list: Entry[]) {
+  async function saveEntries(list: Entry[], renames?: Record<string, string>) {
     if (!settingsValid || catalogState === "error") throw new Error("请先修复或切换配置库位置");
-    if (catalogState === "missing") await api.createCatalog(catalogPath);
-    const warnings = await api.saveCatalog(catalogPath, { version: 1, entries: list });
+    const wasMissing = catalogState === "missing";
+    if (wasMissing) await api.createCatalog(catalogPath);
+    const warnings = await api.saveCatalog(catalogPath, { version: 1, entries: list }, wasMissing ? undefined : catalog?.revisionId, renames);
     await refresh(catalogPath, scope, projectRoot); await loadBackups();
     setDirty(false); setOverlay(null); setFeedback({ tone: warnings.length ? "warn" : "ok", text: warnings.length ? `配置库已保存；${warnings.join("；")}` : "已保存到 MCP 库，尚未修改任何 Agent。选择目标后可预览变更。" });
   }
@@ -229,8 +232,8 @@ export default function App() {
       <div className="sidebar-footer"><button aria-label="软件设置" className={`nav-item${page === "settings" ? " active" : ""}`} disabled={writing} onClick={() => navigate("settings")}><Icon name="settings" /><span>软件设置</span></button><div className="version-line"><span className="status-dot" />{info ? `v${info.version}` : "正在初始化…"}<span>本地配置工具</span></div></div>
     </aside>
     <main className="main"><header className="topbar"><span className="breadcrumb">工作空间<span>/</span><b>{currentTitle}</b></span><div className="spacer" />
-      {page !== "settings" && <div className="workspace-context"><label><span className="sr-only">配置范围</span><select aria-label="配置范围" className="select scope-select" disabled={contextLocked} value={scope} onChange={(event) => changeScope(event.target.value as Scope)}><option value="user">全局配置 · 当前用户</option><option value="project">项目配置 · 当前目录</option></select></label>
-        {scope === "project" && <button className={`btn project-button${!project ? " needs-project" : ""}`} aria-label="选择项目目录" disabled={contextLocked} onClick={() => openOverlay({ kind: "project" })}><Icon name="folder" size={16} />{project ? fileName(project) : "选择项目目录"}</button>}
+      {page !== "settings" && <div className="workspace-context"><label><span className="sr-only">配置范围</span><select aria-label="配置范围" className="select scope-select" disabled={contextLocked} value={scope} onChange={(event) => changeScope(event.target.value as Scope)}><option value="user">全局配置 · 当前用户</option><option value="project">项目配置 · 当前目录</option><option value="local">本地配置 · 项目私有</option></select></label>
+        {scope !== "user" && <button className={`btn project-button${!project ? " needs-project" : ""}`} aria-label="选择项目目录" disabled={contextLocked} onClick={() => openOverlay({ kind: "project" })}><Icon name="folder" size={16} />{project ? fileName(project) : "选择项目目录"}</button>}
       </div>}
       {isMock && <span className="pill warn">演示数据</span>}
       <div className="theme-picker" ref={paletteRef}>
@@ -277,8 +280,8 @@ export default function App() {
     </header>
     <div className={`content${page === "library" ? " library-content" : ""}`}>
       {feedback && <div className="feedback-wrap" role="status" aria-live="polite"><Banner tone={feedback.tone}><span>{feedback.text}</span><button className="btn ghost icon-button small" aria-label="关闭提示" onClick={() => setFeedback(null)}><Icon name="close" size={15} /></button></Banner></div>}
-      {clientError && page !== "settings" && <Banner tone="warn"><span>当前范围的 Agent 状态未完整读取：{clientError}</span>{scope === "project" && <button className="text-button" disabled={contextLocked} onClick={() => openOverlay({ kind: "project" })}>检查项目目录</button>}</Banner>}
-      {!contextReady && settingsValid && scope === "project" && <Banner tone="info"><span>先选择项目目录，即可读取项目配置并选择分发目标。</span><button className="text-button" disabled={contextLocked} onClick={() => openOverlay({ kind: "project" })}>选择项目目录</button></Banner>}
+      {clientError && page !== "settings" && <Banner tone="warn"><span>当前范围的 Agent 状态未完整读取：{clientError}</span>{scope !== "user" && <button className="text-button" disabled={contextLocked} onClick={() => openOverlay({ kind: "project" })}>检查项目目录</button>}</Banner>}
+      {!contextReady && settingsValid && scope !== "user" && <Banner tone="info"><span>先选择项目目录，即可读取项目或本地配置并选择分发目标。</span><button className="text-button" disabled={contextLocked} onClick={() => openOverlay({ kind: "project" })}>选择项目目录</button></Banner>}
       {page === "library" && !!catalog?.issues.length && <Banner tone="warn"><div>{catalog.issues.map((issue) => <p key={issue}>{issue}</p>)}</div></Banner>}
       {page === "library" && <LibraryPage entries={entries} matrix={matrix} clients={clients} scope={scope} selected={selected} focus={focus} onFocus={setFocus} onToggle={toggle}
         onAdd={() => openEditor(null)} onEdit={openEditor} onImport={() => navigate("agents")} onManage={() => openOverlay({ kind: "library" })}
@@ -304,7 +307,12 @@ export default function App() {
     {overlay && <Dialog key={overlay.kind} title={overlay.kind === "editor" ? overlay.entry ? `编辑 ${overlay.entry.name}` : "添加 MCP" : overlay.kind === "library" ? "管理配置库" : overlay.kind === "project" ? "选择项目目录" : overlay.kind === "matrix" ? "批量选择" : "预览变更"}
       wide={overlay.kind === "matrix" || overlay.kind === "preview"} busy={writing} onClose={closeOverlay}>
       {overlay.kind === "editor" && <EntryEditor entry={overlay.entry} entries={entries} onDirty={setDirty} onBusy={setWriting} onClose={closeOverlay}
-        onSave={async (next) => { const list = editingEntry ? entries.map((item) => item.name === editingEntry.name ? next : item) : [...entries, next]; await saveEntries(list); setFocus(next.name); }}
+        onSave={async (next) => {
+          const list = editingEntry ? entries.map((item) => item.name === editingEntry.name ? next : item) : [...entries, next];
+          const renames = editingEntry && editingEntry.name !== next.name ? { [next.name]: editingEntry.name } : undefined;
+          await saveEntries(list, renames);
+          setFocus(next.name);
+        }}
         onRemove={editingEntry ? async () => { await saveEntries(entries.filter((item) => item.name !== editingEntry.name)); setFocus(null); } : null} />}
       {overlay.kind === "library" && <LocationForm kind="library" initial={catalogPath} onClose={closeOverlay} onBusy={setWriting} onUse={async (path, remember) => {
         await api.loadCatalog(path);
@@ -315,12 +323,12 @@ export default function App() {
       }} />}
       {overlay.kind === "project" && <LocationForm kind="project" initial={project ?? ""} onClose={closeOverlay} onBusy={setWriting} onUse={async (path) => {
         if (!settings) throw new Error("软件设置尚未加载");
-        await api.detect("project", path); const next = { ...settings, lastProjectDir: path }; const warnings = await api.saveSettings(next);
+        await api.detect(scope === "user" ? "project" : scope, path); const next = { ...settings, lastProjectDir: path }; const warnings = await api.saveSettings(next);
         setSettings(next); setProject(path); await refresh(catalogPath, scope, path); setOverlay(null);
         setFeedback({ tone: warnings.length ? "warn" : "ok", text: warnings.length ? warnings.join("；") : "项目目录已更新，请为当前项目选择分发目标。" });
       }} />}
       {overlay.kind === "matrix" && <><p className="dialog-intro">高级批量工具。每个单元格表示一组 MCP 与 Agent，未勾选的条目保持不变。</p><MatrixPage matrix={matrix} selected={selected} onToggle={toggle} onSelectAllClient={selectAllClient} onPlan={makePlan} loading={planning || !contextReady} /></>}
-      {overlay.kind === "preview" && <DiffPage plan={plan} error={planError} applying={writing} onApply={applyPlan} onBack={closeOverlay} mode={mode} onModeChange={changeMode} onReplan={makePlan} planning={planning} />}
+      {overlay.kind === "preview" && <DiffPage plan={plan} error={planError} applying={writing} onApply={applyPlan} onBack={closeOverlay} mode={mode} onModeChange={changeMode} allowCommentStrip={allowCommentStrip} onAllowCommentStripChange={changeAllowCommentStrip} onReplan={makePlan} planning={planning} />}
     </Dialog>}
   </div>;
 }

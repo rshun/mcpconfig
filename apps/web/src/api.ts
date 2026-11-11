@@ -49,8 +49,13 @@ export const api = {
   matrix: (catalogPath: string, scope: Scope, projectRoot: string | null = null) =>
     call<MatrixDto>("matrix", { catalogPath, scope, projectRoot }),
   loadCatalog: (path: string) => call<CatalogDto>("load_catalog", { path }),
-  saveCatalog: (path: string, catalog: unknown) =>
-    call<string[]>("save_catalog", { path, catalog }),
+  saveCatalog: (path: string, catalog: unknown, revisionId?: string, renames?: Record<string, string>) =>
+    call<string[]>("save_catalog", {
+      path,
+      catalog,
+      ...(revisionId ? { revisionId } : {}),
+      ...(renames && Object.keys(renames).length ? { renames } : {}),
+    }),
   plan: (request: PlanInput) => call<PlanDto>("plan", { ...request }),
   apply: (request: PlanInput, dryRun: boolean, previewId: string) =>
     call<ReceiptDto>("apply", {

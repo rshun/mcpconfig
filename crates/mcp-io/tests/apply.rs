@@ -170,6 +170,7 @@ fn verify_failure_rolls_back() {
         scope: Scope::User,
         path: target.display().to_string(),
         format: Format::Json,
+        root_key: vec!["mcpServers".into()],
         existed: false,
         blocked: None,
         changes: vec![EntryChange {
@@ -177,6 +178,7 @@ fn verify_failure_rolls_back() {
             kind: ChangeKind::New,
             before: None,
             after: serde_json::json!({}),
+            managed_keys: Default::default(),
         }],
         old_content: String::new(),
         new_content: "{ 这不是合法 JSON ".into(),
@@ -369,4 +371,66 @@ fn toml_file_written_with_backup() {
         text.contains("bearer_token_env_var"),
         "Codex 应使用原生字段"
     );
+}
+
+#[test]
+fn write_and_verify_rejects_unresolved_inline_sentinel_and_managed_state_has_zero_secrets() {
+    let sb = Sandbox::new("managed-skeleton");
+    let target = sb.path("claude.json");
+    let engine = Engine::new(sb.home());
+
+    let mut entry = McpEntry::new_stdio("alpha", "python", vec!["s.py".into()]);
+    entry
+        .env
+        .insert("API_SECRET".into(), "your_secret_value_here".into());
+    let claude = adapters::by_id("claude-code").unwrap();
+    let plan = plan_file(
+        claude,
+        target.display().to_string(),
+        Scope::User,
+        None,
+        &[entry],
+        MergeMode::Merge,
+        false,
+    )
+    .unwrap();
+    let receipt = engine.apply(&[plan], &ApplyOptions::default()).unwrap();
+    assert_eq!(receipt.written(), 1);
+
+    let state_raw = fs::read_to_string(engine.managed_state_path()).unwrap();
+    assert!(
+        !state_raw.contains("your_secret_value_here"),
+        "managed-state.json 只允许保存键骨架，绝不得包含任何值或凭据"
+    );
+    assert!(state_raw.contains("API_SECRET"));
+
+    // 兜底防线：即便有人绕过规划层手工构造包含 <需内联:...> 的计划，引擎也必须拒绝落盘
+    let bad_target = sb.path("sentinel.json");
+    let sentinel_plan = FilePlan {
+        client_id: "workbuddy".into(),
+        client_name: "WorkBuddy".into(),
+        scope: Scope::User,
+        path: bad_target.display().to_string(),
+        format: Format::Json,
+        root_key: vec!["mcpServers".into()],
+        existed: false,
+        blocked: None,
+        changes: vec![EntryChange {
+            name: "gh".into(),
+            kind: ChangeKind::New,
+            before: None,
+            after: serde_json::json!({}),
+            managed_keys: Default::default(),
+        }],
+        old_content: String::new(),
+        new_content: "{\"mcpServers\":{\"gh\":{\"headers\":{\"Authorization\":\"Bearer <需内联:GITHUB_PAT>\"}}}}\n".into(),
+        line_diff: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let bad_receipt = engine
+        .apply(&[sentinel_plan], &ApplyOptions::default())
+        .unwrap();
+    assert_eq!(bad_receipt.written(), 0);
+    assert_eq!(bad_receipt.failed(), 1);
+    assert!(!bad_target.exists(), "含未决哨兵的内容绝不能留在磁盘上");
 }

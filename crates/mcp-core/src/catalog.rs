@@ -89,19 +89,13 @@ pub fn validate(catalog: &Catalog) -> Vec<Issue> {
             ));
         }
 
-        match e.transport {
-            Transport::Stdio => {
-                if e.command.as_deref().unwrap_or("").trim().is_empty() {
-                    issues.push(Issue::error(Some(&e.name), "stdio 条目缺少 command"));
-                }
+        match e.transport_spec() {
+            Ok(crate::model::TransportSpec::Stdio(_)) => {
                 if e.url.is_some() {
                     issues.push(Issue::warn(Some(&e.name), "stdio 条目不应有 url，将被忽略"));
                 }
             }
-            Transport::Http | Transport::Sse => {
-                if e.url.as_deref().unwrap_or("").trim().is_empty() {
-                    issues.push(Issue::error(Some(&e.name), "远程条目缺少 url"));
-                }
+            Ok(crate::model::TransportSpec::Remote(_)) => {
                 if e.command.is_some() {
                     issues.push(Issue::warn(
                         Some(&e.name),
@@ -109,17 +103,53 @@ pub fn validate(catalog: &Catalog) -> Vec<Issue> {
                     ));
                 }
             }
+            Err(_) => match e.transport {
+                Transport::Stdio => {
+                    issues.push(Issue::error(Some(&e.name), "stdio 条目缺少 command"));
+                }
+                Transport::Http | Transport::Sse => {
+                    issues.push(Issue::error(Some(&e.name), "远程条目缺少 url"));
+                }
+            },
         }
 
-        // 明文密钥告警
-        if let Some(crate::model::Auth::Bearer {
-            token: crate::model::SecretSource::Literal(_),
-        }) = &e.auth
-        {
-            issues.push(Issue::warn(
-                Some(&e.name),
-                "使用明文 token，建议改为 token_env 引用环境变量",
-            ));
+        // 明文密钥与 Header 合法性校验
+        let check_auth = |auth: &crate::model::Auth, issues: &mut Vec<Issue>, label: &str| {
+            if auth.is_literal() {
+                issues.push(Issue::warn(
+                    Some(&e.name),
+                    format!("{label}使用明文 token，建议改为 token_env 引用环境变量"),
+                ));
+            }
+            if let crate::model::Auth::Header { header, .. } = auth {
+                if header.trim().is_empty()
+                    || header.contains(|c: char| c.is_control() || c == ':' || c.is_whitespace())
+                {
+                    issues.push(Issue::error(
+                        Some(&e.name),
+                        format!("{label}header 名称 `{header}` 非法"),
+                    ));
+                }
+            }
+        };
+        if let Some(auth) = &e.auth {
+            check_auth(auth, &mut issues, "");
+        }
+
+        // 客户端扩展字段冲突校验
+        for (client, ext) in &e.extensions {
+            if client.trim().is_empty() {
+                issues.push(Issue::error(Some(&e.name), "extensions 存在空客户端键"));
+                continue;
+            }
+            for key in ext.keys() {
+                if crate::adapters::is_reserved_extension_key(key) {
+                    issues.push(Issue::error(
+                        Some(&e.name),
+                        format!("extensions.{client}.{key} 与核心协议字段冲突，请在条目主字段声明"),
+                    ));
+                }
+            }
         }
 
         // 平台覆盖合法性
@@ -130,6 +160,12 @@ pub fn validate(catalog: &Catalog) -> Vec<Issue> {
                     format!("{} 覆盖含 url，但条目是 stdio", platform.as_str()),
                 ));
             }
+            if e.is_remote() && ov.command.is_some() {
+                issues.push(Issue::warn(
+                    Some(&e.name),
+                    format!("{} 覆盖含 command，但条目是远程传输", platform.as_str()),
+                ));
+            }
             if ov.args.is_some() && ov.command.is_none() {
                 issues.push(Issue::warn(
                     Some(&e.name),
@@ -138,6 +174,9 @@ pub fn validate(catalog: &Catalog) -> Vec<Issue> {
                         platform.as_str()
                     ),
                 ));
+            }
+            if let Some(auth) = &ov.auth {
+                check_auth(auth, &mut issues, &format!("{} 覆盖", platform.as_str()));
             }
         }
     }

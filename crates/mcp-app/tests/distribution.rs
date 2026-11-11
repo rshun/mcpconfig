@@ -1,7 +1,7 @@
 use mcp_app::{distribution::DistributionSessions, App, AppError, HostEnv, PlanRequest};
 use mcp_core::{adapters, plan::MergeMode, Platform, Scope};
 use mcp_io::ApplyReceipt;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::{
     collections::BTreeMap,
     fs,

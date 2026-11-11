@@ -1,7 +1,8 @@
 //! 客户端检测：三通道（配置路径 / 可执行文件 / 安装目录）+ 四态。
 
 use crate::env::HostEnv;
-use mcp_core::adapters::{self, paths, Adapter, ClientKind, Format};
+use crate::{App, AppError};
+use mcp_core::adapters::{self, Adapter, ClientKind, Format};
 use mcp_core::document::ConfigDoc;
 use mcp_core::model::{Platform, Scope};
 use std::path::PathBuf;
@@ -98,15 +99,19 @@ pub fn detect_client(
     platform: Platform,
     scope: Scope,
 ) -> ClientStatus {
-    let scope_block = crate::scope_block_reason(adapter.id(), scope);
+    let scope_block = crate::scope_block_reason_for(adapter, scope, env);
 
-    let templates = paths::candidates(adapter.id(), scope, platform);
-    let candidates = env.expand_all(&templates, platform);
+    let templates = adapter.path_candidates(scope, platform);
+    let expanded_targets = env.expand_all_targets(&templates, platform);
+    let candidates: Vec<PathBuf> = expanded_targets.iter().map(|t| t.path.clone()).collect();
 
     // 选第一个存在的；都不存在则取第一个候选（用于新建）
-    let existing = candidates.iter().find(|p| p.exists());
-    let chosen_path = existing.cloned().or_else(|| candidates.first().cloned());
-    let path_existed = existing.is_some();
+    let chosen_target = expanded_targets
+        .iter()
+        .find(|t| t.path.exists())
+        .or_else(|| expanded_targets.first());
+    let path_existed = expanded_targets.iter().any(|t| t.path.exists());
+    let chosen_path = chosen_target.map(|t| t.path.clone());
 
     let binary = which(binary_names(adapter.id()), platform);
 
@@ -119,14 +124,15 @@ pub fn detect_client(
 
     // 读取已有条目（仅用于状态展示，不参与写入决策）
     let mut configured_entries = Vec::new();
-    if let Some(path) = &chosen_path {
-        if path.is_file() {
-            if let Ok(text) = std::fs::read_to_string(path) {
+    if let Some(target) = chosen_target {
+        if target.path.is_file() && scope_block.is_none() {
+            if let Ok(text) = std::fs::read_to_string(&target.path) {
                 if let Ok(doc) = ConfigDoc::parse(
-                    adapter.format_for_path(path),
+                    adapter.format_for_path(&target.path),
                     text.trim_start_matches('\u{feff}'),
                 ) {
-                    configured_entries = doc.names(&adapter.root_key_for_path(scope, path));
+                    let root_key = crate::compute_root_key(adapter, scope, target);
+                    configured_entries = doc.names(&root_key);
                 }
             }
         }
@@ -140,7 +146,7 @@ pub fn detect_client(
             .as_ref()
             .map(|p| adapter.format_for_path(p))
             .unwrap_or(adapter.spec().format),
-        scopes: adapter.spec().scopes.to_vec(),
+        scopes: adapter.spec().scopes.as_ref().to_vec(),
         binary,
         chosen_path,
         candidates,
@@ -151,7 +157,7 @@ pub fn detect_client(
     }
 }
 
-/// 检测全部 14 个客户端。
+/// 检测全部 14 个内置客户端。
 pub fn detect_all(env: &HostEnv, platform: Platform, scope: Scope) -> Vec<ClientStatus> {
     adapters::all()
         .iter()
@@ -159,7 +165,7 @@ pub fn detect_all(env: &HostEnv, platform: Platform, scope: Scope) -> Vec<Client
         .collect()
 }
 
-/// 按 id 检测。
+/// 按 id 检测内置客户端。
 pub fn detect_one(
     id: &str,
     env: &HostEnv,
@@ -167,6 +173,26 @@ pub fn detect_one(
     scope: Scope,
 ) -> Option<ClientStatus> {
     adapters::by_id(id).map(|a| detect_client(a, env, platform, scope))
+}
+
+impl App {
+    /// 检测全部客户端（含 `<mcp_hub_home>/adapters.yaml` 中的自定义客户端）。
+    pub fn detect_all(&self, scope: Scope) -> Result<Vec<ClientStatus>, AppError> {
+        let set = self.adapter_set()?;
+        Ok(set
+            .all()
+            .into_iter()
+            .map(|a| detect_client(a, &self.env, self.platform, scope))
+            .collect())
+    }
+
+    /// 按 id 检测单个客户端（含自定义客户端）。
+    pub fn detect_one(&self, id: &str, scope: Scope) -> Result<Option<ClientStatus>, AppError> {
+        let set = self.adapter_set()?;
+        Ok(set
+            .by_id(id)
+            .map(|a| detect_client(a, &self.env, self.platform, scope)))
+    }
 }
 
 #[cfg(test)]

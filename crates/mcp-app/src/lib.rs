@@ -5,6 +5,7 @@
 //! GUI（Tauri）与 CLI 都只调用这里，不直接碰 `mcp-io` / `mcp-core`。
 //! 因此换前端不需要改动任何业务逻辑（见架构文档 §3.2）。
 
+pub mod catalog_session;
 pub mod detect;
 pub mod distribution;
 pub mod env;
@@ -13,10 +14,10 @@ pub mod inspect;
 mod planning;
 pub mod settings;
 
-use mcp_core::adapters::{self, Adapter};
+use mcp_core::adapters::{self, Adapter, ClientKind, CustomAdapter};
 use mcp_core::interpolate::VarCtx;
 use mcp_core::model::{Catalog, McpEntry, Platform, Scope};
-use mcp_core::plan::{plan_file, FilePlan, MergeMode};
+use mcp_core::plan::{plan_file_with_options, FilePlan, MergeMode, PlanFileOptions};
 use mcp_core::{catalog, resolve};
 use mcp_io::{ApplyOptions, ApplyReceipt, BackupManifest, Engine};
 use std::collections::BTreeMap;
@@ -25,19 +26,106 @@ use std::path::{Path, PathBuf};
 pub use detect::{detect_all, detect_client, DetectState};
 pub use env::HostEnv;
 
+// ---------------------------------------------------------------- 适配器注册集合
+
+/// 内置 14 个客户端 + 可选 `<mcp_hub_home>/adapters.yaml` 中的声明式自定义客户端。
+#[derive(Default)]
+pub struct AdapterSet {
+    custom: Vec<CustomAdapter>,
+}
+
+impl AdapterSet {
+    pub fn by_id<'a>(&'a self, id: &str) -> Option<&'a dyn Adapter> {
+        if let Some(builtin) = adapters::by_id(id) {
+            return Some(builtin);
+        }
+        self.custom
+            .iter()
+            .find(|c| c.id() == id)
+            .map(|c| c as &dyn Adapter)
+    }
+
+    pub fn all<'a>(&'a self) -> Vec<&'a dyn Adapter> {
+        let mut list: Vec<&'a dyn Adapter> = adapters::all().to_vec();
+        list.extend(self.custom.iter().map(|c| c as &dyn Adapter));
+        list
+    }
+
+    pub fn ids(&self) -> Vec<String> {
+        self.all().into_iter().map(|a| a.id().to_string()).collect()
+    }
+}
+
+/// 展开后的物理配置文件路径与容器键路径（含 `#fragment` 动态前缀，如 `projects.<proj>.mcpServers`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetLocation {
+    pub path: PathBuf,
+    pub root_key: Vec<String>,
+}
+
+fn normalize_project_key_for_match(key: &str) -> String {
+    let mut s = key.replace('\\', "/");
+    while s.len() > 3 && s.ends_with('/') {
+        s.pop();
+    }
+    #[cfg(windows)]
+    {
+        s = s.to_lowercase();
+    }
+    s
+}
+
+pub(crate) fn compute_root_key(
+    adapter: &dyn Adapter,
+    scope: Scope,
+    target: &env::ExpandedTarget,
+) -> Vec<String> {
+    let mut root = target.container_prefix.clone();
+    // Claude Code 在 `~/.claude.json` 的 `projects` 下可能已按自身分隔符风格保存了项目键；
+    // 若磁盘中已存在等价路径键，复用原键名避免产生重复项目节点。
+    if root.len() >= 2 && root[0] == "projects" && target.path.is_file() {
+        if let Ok(text) = std::fs::read_to_string(&target.path) {
+            if let Ok(doc) = mcp_core::document::ConfigDoc::parse(
+                adapter.format_for_path(&target.path),
+                text.trim_start_matches('\u{feff}'),
+            ) {
+                let existing_keys = doc.names(&["projects".to_string()]);
+                let want = normalize_project_key_for_match(&root[1]);
+                if let Some(matched) = existing_keys
+                    .into_iter()
+                    .find(|k| normalize_project_key_for_match(k) == want)
+                {
+                    root[1] = matched;
+                }
+            }
+        }
+    }
+    root.extend(adapter.root_key_for_path(scope, &target.path));
+    root
+}
+
 // ---------------------------------------------------------------- 作用域能力
 
-/// v0 的应用层作用域限制。
-///
-/// Claude Code 的 `local` 需要写入 `.claude.json` 内部的
-/// `projects.<路径>.mcpServers` 嵌套结构，当前文档模型不支持，故暂时禁用。
+/// 检查内置客户端在静态层面是否支持指定作用域。
 pub fn scope_block_reason(client_id: &str, scope: Scope) -> Option<String> {
     let adapter = adapters::by_id(client_id)?;
     if !adapter.supports_scope(scope) {
         return Some(format!("{} 不支持{}作用域", adapter.display_name(), scope));
     }
-    if client_id == "claude-code" && scope == Scope::Local {
-        return Some("v0 暂不支持 Claude Code 的本地级（需嵌套写入 projects.<路径>）".into());
+    None
+}
+
+/// 结合宿主环境检查任意适配器（含自定义适配器）的作用域可用性。
+pub fn scope_block_reason_for(
+    adapter: &dyn Adapter,
+    scope: Scope,
+    env: &HostEnv,
+) -> Option<String> {
+    if !adapter.supports_scope(scope) {
+        return Some(format!("{} 不支持{}作用域", adapter.display_name(), scope));
+    }
+    if scope == Scope::Local && env.project_root.is_none() {
+        return Some("本地级配置需要先选择项目目录".into());
     }
     None
 }
@@ -83,6 +171,24 @@ impl App {
         }
     }
 
+    /// 自定义适配器声明文件路径（只读探测时不创建目录）。
+    pub fn custom_adapters_path(&self) -> PathBuf {
+        self.engine.home().join("adapters.yaml")
+    }
+
+    /// 加载内置 + 自定义适配器集合。
+    pub fn adapter_set(&self) -> Result<AdapterSet, AppError> {
+        let Some(text) = self.engine.read_text(&self.custom_adapters_path())? else {
+            return Ok(AdapterSet::default());
+        };
+        let custom = adapters::parse_custom_adapters(&text)?;
+        Ok(AdapterSet { custom })
+    }
+
+    pub fn check_scope_block(&self, adapter: &dyn Adapter, scope: Scope) -> Option<String> {
+        scope_block_reason_for(adapter, scope, &self.env)
+    }
+
     /// 读取并校验清单。
     pub fn load_catalog(&self, path: &Path) -> Result<(Catalog, Vec<String>), AppError> {
         let text = std::fs::read_to_string(path)
@@ -104,19 +210,23 @@ impl App {
         mut cat: Catalog,
         issues: Vec<String>,
     ) -> Result<PlanOutcome, AppError> {
+        let adapter_set = self.adapter_set()?;
+        let managed_state = self.engine.load_managed_state();
         cat.entries = resolve::entries_for_scope(&cat.entries, req.scope, req.scope);
 
         let ids: Vec<String> = match &req.clients {
             Some(list) => list.clone(),
             None => match &req.selection {
                 Some(selection) => selection.keys().cloned().collect(),
-                None => adapters::all().iter().map(|a| a.id().to_string()).collect(),
+                None => adapter_set.ids(),
             },
         };
 
         if let Some(selection) = &req.selection {
             for (id, names) in selection {
-                adapters::by_id(id).ok_or_else(|| AppError::UnknownClient(id.clone()))?;
+                adapter_set
+                    .by_id(id)
+                    .ok_or_else(|| AppError::UnknownClient(id.clone()))?;
                 if !ids.contains(id) {
                     return Err(AppError::InvalidSelection(format!(
                         "客户端 {id} 不在本次目标范围内"
@@ -134,17 +244,20 @@ impl App {
             cat.entries
                 .retain(|entry| selection.values().any(|names| names.contains(&entry.name)));
         }
-        let (entries, missing) = resolve::resolve_catalog(&cat, self.platform, &self.var_ctx());
 
+        let entry_count = cat.entries.len();
+        let ctx = self.var_ctx();
+        let mut all_missing = Vec::new();
         let mut plans = Vec::new();
         let mut skipped = Vec::new();
 
         for id in &ids {
-            let Some(adapter) = adapters::by_id(id) else {
+            let Some(adapter) = adapter_set.by_id(id) else {
                 return Err(AppError::UnknownClient(id.clone()));
             };
 
-            let client_entries: Vec<McpEntry> = entries
+            let raw_client_entries: Vec<&McpEntry> = cat
+                .entries
                 .iter()
                 .filter(|entry| match &req.selection {
                     Some(selection) => selection
@@ -152,57 +265,84 @@ impl App {
                         .is_some_and(|names| names.contains(&entry.name)),
                     None => true,
                 })
-                .cloned()
                 .collect();
-            if req.selection.is_some() && client_entries.is_empty() {
+            if req.selection.is_some() && raw_client_entries.is_empty() {
                 continue;
             }
 
-            if let Some(reason) = scope_block_reason(id, req.scope) {
+            if let Some(reason) = self.check_scope_block(adapter, req.scope) {
                 skipped.push((id.clone(), reason));
                 continue;
             }
 
-            let Some(path) = self.target_path(adapter, req.scope) else {
+            let Some(loc) = self.target_location(adapter, req.scope) else {
                 skipped.push((id.clone(), "无法解析配置路径（缺少环境变量）".into()));
                 continue;
             };
 
+            let mut client_entries = Vec::with_capacity(raw_client_entries.len());
+            for entry in raw_client_entries {
+                let (resolved, missing) =
+                    resolve::resolve_for_client(entry, adapter, req.scope, self.platform, &ctx);
+                all_missing.extend(missing);
+                client_entries.push(resolved);
+            }
+
             let existing = self
                 .engine
-                .read_text(&path)
+                .read_text(&loc.path)
                 .map_err(|e| AppError::Other(e.to_string()))?;
 
-            let plan = plan_file(
+            let managed_entries = mcp_io::managed_container_key(&loc.path, &loc.root_key)
+                .ok()
+                .and_then(|k| managed_state.containers.get(&k));
+
+            let plan = plan_file_with_options(
                 adapter,
-                path.display().to_string(),
+                loc.path.display().to_string(),
                 req.scope,
                 existing.as_deref(),
                 &client_entries,
                 req.mode,
                 req.allow_comment_strip,
+                &PlanFileOptions {
+                    root_key_override: Some(&loc.root_key),
+                    managed_entries,
+                },
             )?;
             plans.push(plan);
         }
 
+        all_missing.sort_by(|a, b| a.raw.cmp(&b.raw));
+        all_missing.dedup_by(|a, b| a.raw == b.raw);
+
         Ok(PlanOutcome {
             catalog_issues: issues,
-            missing_vars: missing.into_iter().map(|m| m.raw).collect(),
+            missing_vars: all_missing.into_iter().map(|m| m.raw).collect(),
             plans: planning::coalesce(plans)?,
             skipped,
-            entry_count: entries.len(),
+            entry_count,
+        })
+    }
+
+    /// 目标路径及动态容器根路径：优先已存在者，否则第一个候选。
+    pub fn target_location(&self, adapter: &dyn Adapter, scope: Scope) -> Option<TargetLocation> {
+        let templates = adapter.path_candidates(scope, self.platform);
+        let candidates = self.env.expand_all_targets(&templates, self.platform);
+        let chosen = candidates
+            .iter()
+            .find(|t| t.path.exists())
+            .or_else(|| candidates.first())?;
+        let root_key = compute_root_key(adapter, scope, chosen);
+        Some(TargetLocation {
+            path: chosen.path.clone(),
+            root_key,
         })
     }
 
     /// 目标路径：优先已存在者，否则第一个候选。
     pub fn target_path(&self, adapter: &dyn Adapter, scope: Scope) -> Option<PathBuf> {
-        let templates = mcp_core::adapters::paths::candidates(adapter.id(), scope, self.platform);
-        let candidates = self.env.expand_all(&templates, self.platform);
-        candidates
-            .iter()
-            .find(|p| p.exists())
-            .cloned()
-            .or_else(|| candidates.first().cloned())
+        self.target_location(adapter, scope).map(|loc| loc.path)
     }
 
     /// 执行写入。
@@ -319,6 +459,7 @@ pub struct MatrixView {
     pub platform: Platform,
     pub scope: Scope,
     pub clients: Vec<String>,
+    pub client_details: Vec<(String, String, ClientKind)>,
     pub rows: Vec<MatrixRow>,
     pub issues: Vec<String>,
 }
@@ -326,54 +467,69 @@ pub struct MatrixView {
 impl App {
     /// 生成矩阵视图：每格是「该条目在该客户端」的真实状态。
     ///
-    /// 只读：不会写入任何文件。
+    /// 只读：不会写入任何文件。结合零密钥 `ManagedState` 执行 3-Way 对账，
+    /// 使清单中已删除的键立刻体现为 `CellState::Diff` 而非误报 `Ok`。
     pub fn matrix(&self, catalog_path: &Path, scope: Scope) -> Result<MatrixView, AppError> {
         let (cat, issues) = self.load_catalog(catalog_path)?;
+        let adapter_set = self.adapter_set()?;
+        let managed_state = self.engine.load_managed_state();
         let ctx = self.var_ctx();
-        let (resolved, _missing) = resolve::resolve_catalog(&cat, self.platform, &ctx);
-        let entries = resolve::entries_for_scope(&resolved, scope, scope);
+        let entries = resolve::entries_for_scope(&cat.entries, scope, scope);
 
-        let clients: Vec<String> = adapters::all().iter().map(|a| a.id().to_string()).collect();
+        let adapters_list = adapter_set.all();
+        let clients: Vec<String> = adapters_list.iter().map(|a| a.id().to_string()).collect();
+        let client_details: Vec<(String, String, ClientKind)> = adapters_list
+            .iter()
+            .map(|a| (a.id().to_string(), a.display_name().to_string(), a.kind()))
+            .collect();
         let mut rows = Vec::with_capacity(entries.len());
 
-        // 每个客户端的文档只解析一次
+        // 每个客户端的文档与已托管键骨架只解析一次
         let mut docs: Vec<Option<mcp_core::document::ConfigDoc>> =
-            Vec::with_capacity(clients.len());
-        let mut roots: Vec<Option<Vec<String>>> = Vec::with_capacity(clients.len());
+            Vec::with_capacity(adapters_list.len());
+        let mut roots: Vec<Option<Vec<String>>> = Vec::with_capacity(adapters_list.len());
+        let mut managed_maps: Vec<
+            Option<BTreeMap<String, mcp_core::document::ManagedKeys>>,
+        > = Vec::with_capacity(adapters_list.len());
 
-        for id in &clients {
-            let adapter = adapters::by_id(id).unwrap();
-            if scope_block_reason(id, scope).is_some() {
+        for adapter in &adapters_list {
+            if self.check_scope_block(*adapter, scope).is_some() {
                 docs.push(None);
                 roots.push(None);
+                managed_maps.push(None);
                 continue;
             }
-            let Some(path) = self.target_path(adapter, scope) else {
+            let Some(loc) = self.target_location(*adapter, scope) else {
                 docs.push(None);
                 roots.push(None);
+                managed_maps.push(None);
                 continue;
             };
             let text = self
                 .engine
-                .read_text(&path)
+                .read_text(&loc.path)
                 .map_err(|e| AppError::Other(e.to_string()))?
                 .unwrap_or_default();
             let doc = mcp_core::document::ConfigDoc::parse(
-                adapter.format_for_path(&path),
+                adapter.format_for_path(&loc.path),
                 text.trim_start_matches('\u{feff}'),
             )
             .ok();
+            let managed_map = mcp_io::managed_container_key(&loc.path, &loc.root_key)
+                .ok()
+                .and_then(|k| managed_state.containers.get(&k).cloned());
             docs.push(doc);
-            roots.push(Some(adapter.root_key_for_path(scope, &path)));
+            roots.push(Some(loc.root_key));
+            managed_maps.push(managed_map);
         }
 
         for entry in &entries {
-            let mut cells = Vec::with_capacity(clients.len());
-            for (i, id) in clients.iter().enumerate() {
-                let adapter = adapters::by_id(id).unwrap();
-                if let Some(reason) = scope_block_reason(id, scope) {
+            let mut cells = Vec::with_capacity(adapters_list.len());
+            for (i, adapter) in adapters_list.iter().enumerate() {
+                let id = adapter.id();
+                if let Some(reason) = self.check_scope_block(*adapter, scope) {
                     cells.push(MatrixCell {
-                        client_id: id.clone(),
+                        client_id: id.to_string(),
                         state: CellState::Unsupported,
                         detail: Some(reason),
                     });
@@ -381,26 +537,40 @@ impl App {
                 }
                 let (Some(doc), Some(root)) = (&docs[i], &roots[i]) else {
                     cells.push(MatrixCell {
-                        client_id: id.clone(),
+                        client_id: id.to_string(),
                         state: CellState::Unsupported,
                         detail: Some("无法解析配置路径".into()),
                     });
                     continue;
                 };
-                let encoded = adapter.encode_entry(entry)?;
+                let (resolved_entry, _) =
+                    resolve::resolve_for_client(entry, *adapter, scope, self.platform, &ctx);
+                let encoded = adapter.encode_entry_checked(&resolved_entry)?;
                 let state = match doc.get(root, &entry.name) {
                     None => CellState::Absent,
                     Some(existing) => {
-                        let merged = mcp_core::document::merge_json(&existing, &encoded);
-                        if merged == existing {
-                            CellState::Ok
-                        } else {
+                        if !encoded.unresolved_inline_secrets.is_empty() {
                             CellState::Diff
+                        } else {
+                            let prev_managed = managed_maps[i]
+                                .as_ref()
+                                .and_then(|m| m.get(&entry.name));
+                            let (merged, _) = mcp_core::document::reconcile_entry(
+                                Some(&existing),
+                                &encoded.value,
+                                MergeMode::Merge,
+                                prev_managed,
+                            );
+                            if merged == existing {
+                                CellState::Ok
+                            } else {
+                                CellState::Diff
+                            }
                         }
                     }
                 };
                 cells.push(MatrixCell {
-                    client_id: id.clone(),
+                    client_id: id.to_string(),
                     state,
                     detail: None,
                 });
@@ -421,8 +591,9 @@ impl App {
             platform: self.platform,
             scope,
             clients,
+            client_details,
             rows,
-            issues: issues.iter().map(|i| i.to_string()).collect(),
+            issues,
         })
     }
 }
@@ -580,14 +751,28 @@ entries:
         let dir = sandbox("skip");
         let cat = write_catalog(&dir);
         let app = app_in(&dir);
-        let mut req = PlanRequest::new(cat);
-        req.clients = Some(vec!["claude-code".into()]);
+        let mut req = PlanRequest::new(cat.clone());
+        req.clients = Some(vec!["codex".into()]);
         req.scope = Scope::Local;
 
         let out = app.plan(&req).unwrap();
         assert!(out.plans.is_empty());
         assert_eq!(out.skipped.len(), 1);
-        assert!(out.skipped[0].1.contains("本地级"));
+        assert!(out.skipped[0].1.contains("本地"));
+
+        // Claude Code 在未选择项目目录时同样跳过本地级；有项目目录时写入 .claude.json#projects.<proj>
+        let mut app_no_proj = app_in(&dir);
+        app_no_proj.env.project_root = None;
+        let mut req_local = PlanRequest::new(cat);
+        req_local.clients = Some(vec!["claude-code".into()]);
+        req_local.scope = Scope::Local;
+        let out_no_proj = app_no_proj.plan(&req_local).unwrap();
+        assert!(out_no_proj.plans.is_empty());
+        assert!(out_no_proj.skipped[0].1.contains("本地级"));
+
+        let out_with_proj = app.plan(&req_local).unwrap();
+        assert_eq!(out_with_proj.plans.len(), 1);
+        assert_eq!(out_with_proj.plans[0].root_key[0], "projects");
         let _ = fs::remove_dir_all(&dir);
     }
 

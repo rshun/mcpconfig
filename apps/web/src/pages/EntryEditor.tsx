@@ -5,11 +5,13 @@ import { pairMap, pairRows, type PairRow } from "../editor-data";
 import type { Entry } from "./Catalog";
 
 function KeyValues({ label, rows, onChange }: { label: string; rows: PairRow[]; onChange: (rows: PairRow[]) => void }) {
+  const hasRedacted = rows.some((row) => row.value === "[已隐藏]");
   return <div className="key-values"><div className="field-top"><span className="field-label">{label}</span><button className="text-button" type="button" onClick={() => onChange([...rows, { key: "", value: "" }])}><Icon name="plus" size={14} />添加一项</button></div>
     {rows.map((row, index) => <div className="key-value-row" key={index}><input className="input mono" aria-label={`${label}名称 ${index + 1}`} placeholder="名称" value={row.key} onChange={(event) => onChange(rows.map((item, i) => i === index ? { ...item, key: event.target.value } : item))} />
       <input className="input mono" aria-label={`${label}值 ${index + 1}`} placeholder="值或 ${ENV:VARIABLE}" autoComplete="off" spellCheck={false}
-        type={/^\$\{(?:ENV:)?[A-Za-z_][A-Za-z0-9_]*\}$/.test(row.value) ? "text" : "password"} value={row.value} onChange={(event) => onChange(rows.map((item, i) => i === index ? { ...item, value: event.target.value } : item))} />
+        type={row.value === "[已隐藏]" || /^\$\{(?:ENV:)?[A-Za-z_][A-Za-z0-9_]*\}$/.test(row.value) ? "text" : "password"} value={row.value} onChange={(event) => onChange(rows.map((item, i) => i === index ? { ...item, value: event.target.value } : item))} />
       <button className="btn ghost icon-button" type="button" aria-label={`移除${label} ${index + 1}`} onClick={() => onChange(rows.filter((_, i) => i !== index))}><Icon name="close" size={16} /></button></div>)}
+    {hasRedacted && <p className="field-hint">显示为 [已隐藏] 的原凭据仅驻留后端，未修改时保存会自动保留原值。</p>}
     {!rows.length && <p className="field-hint">未设置，按需添加即可。</p>}
   </div>;
 }
@@ -34,7 +36,7 @@ export function EntryEditor({ entry, entries, onSave, onRemove, onClose, onDirty
       if (!draft.name.trim() || draft.name.trim() !== draft.name || /[\r\n\t]/.test(draft.name)) throw new Error("请填写名称，且不要在名称两端留空格");
       if (entries.some((item) => item.name === draft.name && item.name !== entry?.name)) throw new Error("配置库已有同名 MCP，请使用其他名称");
       if (draft.transport === "stdio" ? !draft.command?.trim() : !draft.url?.trim()) throw new Error(draft.transport === "stdio" ? "请填写启动命令" : "请填写远程地址或地址变量引用");
-      if (draft.auth?.token_env && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(draft.auth.token_env)) throw new Error("Bearer 字段填写环境变量名，不要填写密钥值");
+      if (draft.auth?.type === "bearer" && draft.auth.token_env && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(draft.auth.token_env)) throw new Error("Bearer 字段填写环境变量名，不要填写密钥值");
       const next = { ...draft, env: pairMap(env), headers: pairMap(headers, true) };
       if (!entry || entry.transport !== draft.transport) {
         if (draft.transport === "stdio") { next.url = undefined; next.auth = undefined; next.headers = undefined; }
@@ -60,11 +62,15 @@ export function EntryEditor({ entry, entries, onSave, onRemove, onClose, onDirty
         <KeyValues label="环境变量" rows={env} onChange={setEnv} />
       </> : <>
         <label className="field-label">服务地址<span className="required-mark">必填</span><input className="input mono" inputMode="url" aria-label="服务地址" placeholder="https://example.invalid/mcp 或 ${ENV:MCP_URL}" value={draft.url ?? ""} onChange={(event) => patch({ url: event.target.value })} /></label>
-        <label className="field-label">Bearer 凭据变量<span className="optional-mark">无需认证可留空</span><input className="input mono" aria-label="Bearer 凭据变量" placeholder="例如 SERVICE_API_KEY，只填变量名" autoComplete="off" value={draft.auth?.token_env ?? ""} onChange={(event) => patch({ auth: event.target.value ? { type: "bearer", token_env: event.target.value } : undefined })} /></label>
-        {draft.auth?.token && <p className="field-hint">原配置含直接凭据，未改动时保留原值；填写变量名会将它替换为变量引用。</p>}
+        {draft.auth && draft.auth.type !== "bearer" ? (
+          <p className="field-hint">已配置自定义请求头认证（{draft.auth.header}），保存时保留原设置。</p>
+        ) : <>
+          <label className="field-label">Bearer 凭据变量<span className="optional-mark">无需认证可留空</span><input className="input mono" aria-label="Bearer 凭据变量" placeholder="例如 SERVICE_API_KEY，只填变量名" autoComplete="off" value={draft.auth?.type === "bearer" ? draft.auth.token_env ?? "" : ""} onChange={(event) => patch({ auth: event.target.value ? { type: "bearer", token_env: event.target.value } : undefined })} /></label>
+          {draft.auth?.type === "bearer" && draft.auth.token && <p className="field-hint">原配置含直接凭据，未改动时保留原值；填写变量名会将它替换为变量引用。</p>}
+        </>}
       </>}
       <details className="advanced-editor"><summary>高级设置<span>{draft.scope && draft.scope !== "inherit" ? ` · ${draft.scope === "project" ? "仅项目" : draft.scope === "user" ? "仅全局" : "仅本地"}` : " · 按需展开"}</span></summary><div className="advanced-editor-body">
-        <label className="field-label">适用范围<select className="select" aria-label="适用范围" value={draft.scope ?? "inherit"} onChange={(event) => patch({ scope: event.target.value as Entry["scope"] })}><option value="inherit">跟随工作范围（推荐）</option><option value="user">仅全局配置</option><option value="project">仅项目配置</option><option value="local">仅本地配置（当前 GUI 不支持分发）</option></select></label>
+        <label className="field-label">适用范围<select className="select" aria-label="适用范围" value={draft.scope ?? "inherit"} onChange={(event) => patch({ scope: event.target.value as Entry["scope"] })}><option value="inherit">跟随工作范围（推荐）</option><option value="user">仅全局配置</option><option value="project">仅项目配置</option><option value="local">仅本地配置（项目私有，不入库）</option></select></label>
         {draft.transport === "stdio" && <label className="field-label">工作目录<input className="input mono" aria-label="启动工作目录" value={draft.cwd ?? ""} placeholder="可使用 ${PROJECT_ROOT}" onChange={(event) => patch({ cwd: event.target.value || undefined })} /></label>}
         {draft.transport !== "stdio" && <><KeyValues label="环境变量" rows={env} onChange={setEnv} /><KeyValues label="请求头" rows={headers} onChange={setHeaders} /></>}
         <p className="field-hint">已有的平台覆盖、标签、启用状态和其他高级字段会保留。变量值和连接状态不会在此验证。</p>

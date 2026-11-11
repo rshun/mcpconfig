@@ -130,15 +130,12 @@ pub struct MatrixDto {
 impl From<MatrixView> for MatrixDto {
     fn from(m: MatrixView) -> Self {
         let clients = m
-            .clients
-            .iter()
-            .map(|id| {
-                let a = mcp_core::adapters::by_id(id).unwrap();
-                ClientBriefDto {
-                    id: a.id().to_string(),
-                    name: a.display_name().to_string(),
-                    kind: a.kind().to_string(),
-                }
+            .client_details
+            .into_iter()
+            .map(|(id, name, kind)| ClientBriefDto {
+                id,
+                name,
+                kind: kind.to_string(),
             })
             .collect();
 
@@ -378,7 +375,10 @@ pub struct BackupDto {
 #[serde(rename_all = "camelCase")]
 pub struct CatalogDto {
     pub exists: bool,
-    /// 原样返回清单（前端编辑后回传）
+    /// 会话乐观并发修订号（保存时用于 CAS 校验与隐藏凭据回填）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revision_id: Option<String>,
+    /// 已脱敏的清单视图（敏感值替换为 `[已隐藏]`，后端保存时自动回填未修改项）
     pub catalog: serde_json::Value,
     pub issues: Vec<String>,
     pub entry_count: usize,

@@ -142,11 +142,11 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             let scope = parse_scope(&scope)?;
             let app = make_app(home, project);
             let statuses = match client {
-                Some(id) => vec![
-                    mcp_app::detect::detect_one(&id, &app.env, app.platform, scope)
-                        .ok_or_else(|| format!("未知客户端：{id}"))?,
-                ],
-                None => mcp_app::detect_all(&app.env, app.platform, scope),
+                Some(id) => vec![app
+                    .detect_one(&id, scope)
+                    .map_err(|e| e.to_string())?
+                    .ok_or_else(|| format!("未知客户端：{id}"))?],
+                None => app.detect_all(scope).map_err(|e| e.to_string())?,
             };
 
             out!("平台 {} · 作用域 {}", app.platform, scope);

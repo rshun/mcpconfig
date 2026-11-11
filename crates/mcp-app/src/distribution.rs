@@ -1,6 +1,6 @@
 //! GUI 分发预览：原文和最终计划只保留在后端，确认只能消费当前一次性预览。
-use crate::{scope_block_reason, App, AppError, PlanOutcome, PlanRequest};
-use mcp_core::{adapters, catalog, Platform};
+use crate::{App, AppError, PlanOutcome, PlanRequest};
+use mcp_core::{catalog, Platform};
 use mcp_io::ApplyReceipt;
 use std::{
     collections::BTreeMap,
@@ -46,6 +46,8 @@ struct Context {
     data: String,
     backups: String,
     settings: FileSnapshot,
+    custom_adapters: FileSnapshot,
+    managed_state: FileSnapshot,
 }
 impl Context {
     fn capture(app: &App) -> Result<Self, AppError> {
@@ -57,17 +59,17 @@ impl Context {
             data: file_key(app.engine.home())?,
             backups: file_key(&app.engine.backups_dir())?,
             settings: FileSnapshot::capture(&app.settings_path())?,
+            custom_adapters: FileSnapshot::capture(&app.custom_adapters_path())?,
+            managed_state: FileSnapshot::capture(&app.engine.managed_state_path())?,
         })
     }
 }
 type Resolutions = BTreeMap<String, Option<(PathBuf, String)>>;
 fn resolutions(app: &App, req: &PlanRequest) -> Result<Resolutions, AppError> {
+    let adapter_set = app.adapter_set()?;
     let clients = req.clients.clone().unwrap_or_else(|| match &req.selection {
         Some(selection) => selection.keys().cloned().collect(),
-        None => crate::client_ids()
-            .into_iter()
-            .map(str::to_string)
-            .collect(),
+        None => adapter_set.ids(),
     });
     let mut result = BTreeMap::new();
     for id in clients {
@@ -78,8 +80,8 @@ fn resolutions(app: &App, req: &PlanRequest) -> Result<Resolutions, AppError> {
         {
             continue;
         }
-        let adapter = adapters::by_id(&id).ok_or_else(|| stale("分发目标无效"))?;
-        let path = if scope_block_reason(&id, req.scope).is_some() {
+        let adapter = adapter_set.by_id(&id).ok_or_else(|| stale("分发目标无效"))?;
+        let path = if app.check_scope_block(adapter, req.scope).is_some() {
             None
         } else {
             app.target_path(adapter, req.scope)

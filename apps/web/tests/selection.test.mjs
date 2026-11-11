@@ -175,13 +175,16 @@ test('配置库保留所有范围条目，按当前范围说明可用性', () =>
   assert.match(scopeReason(entry, 'user'), /项目/);
   assert.equal(scopeReason(entry, 'project'), null);
   assert.equal(scopeReason({ ...entry, scope: 'inherit' }, 'user'), null);
-  assert.match(scopeReason({ ...entry, scope: 'local' }, 'user'), /暂不支持/);
+  assert.match(scopeReason({ ...entry, scope: 'local' }, 'user'), /本地/);
+  assert.equal(scopeReason({ ...entry, scope: 'local' }, 'local'), null);
   assert.equal(scopeLabel(entry), '仅项目');
   assert.equal(fileName('C:\\work\\中文项目\\'), '中文项目');
 });
 test('详情只提取变量名，不把字面值或无效变量展示为凭据', () => {
   const entry = { name: 'http', transport: 'http', url: '${ENV:MCP_URL}', env: { DEMO: '${VALUE}', OTHER: 'your_secret_here' }, auth: { type: 'bearer', token_env: 'MCP_AUTH' } };
   assert.deepEqual(variableNames(entry), ['MCP_URL', 'VALUE', 'MCP_AUTH']);
+  const headerEntry = { name: 'gw', transport: 'http', url: 'https://example.invalid/mcp', auth: { type: 'header', header: 'X-Api-Key', value_env: 'GW_HEADER_KEY' } };
+  assert.deepEqual(variableNames(headerEntry), ['GW_HEADER_KEY']);
 });
 test('键值编辑保留逗号、等号、空格、空值并拒绝重复和无效名称', () => {
   const map = { ARGS: '  one,two=value  ', EMPTY: '' };
@@ -211,4 +214,17 @@ test('分发确认必须携带预览 ID，取消、旧预览、篡改和重复�
   plan = await mockCall('plan', args);
   await assert.rejects(mockCall('apply', { ...args, mode: 'replace', previewId: plan.previewId }), /变化/);
   await assert.rejects(mockCall('apply', { ...args, previewId: plan.previewId }), /重新预览/);
+});
+
+test('配置库加载返回修订号并隐藏敏感值，保存携带修订号与重命名映射并拒绝过期修订', async () => {
+  calls.length = 0;
+  await api.saveCatalog('C:/test/catalog.yaml', { version: 1, entries: [] }, 'cat-rev-1', { renamed: 'old' });
+  assert.deepEqual(calls, [{
+    command: 'save_catalog',
+    args: { path: 'C:/test/catalog.yaml', catalog: { version: 1, entries: [] }, revisionId: 'cat-rev-1', renames: { renamed: 'old' } },
+  }]);
+  const loaded = await mockCall('load_catalog', { path: 'C:/demo/catalog.yaml' });
+  assert.ok(loaded.revisionId);
+  await assert.rejects(mockCall('save_catalog', { path: 'C:/demo/catalog.yaml', catalog: loaded.catalog, revisionId: 'stale-rev' }), /过期/);
+  await mockCall('save_catalog', { path: 'C:/demo/catalog.yaml', catalog: loaded.catalog, revisionId: loaded.revisionId });
 });

@@ -2,6 +2,7 @@
 use serde_json::Value;
 
 const HIDDEN: &str = "[已隐藏]";
+pub const HIDDEN_MARKER: &str = HIDDEN;
 
 pub fn config_entry(value: &Value) -> Value {
     redact(value, false)
@@ -19,7 +20,12 @@ fn redact(value: &Value, sensitive: bool) -> Value {
                         && key == "type"
                         && value
                             .as_str()
-                            .is_some_and(|s| ["bearer", "basic"].contains(&s))
+                            .is_some_and(|s| ["bearer", "basic", "header", "api_key"].contains(&s))
+                    {
+                        value.clone()
+                    } else if sensitive
+                        && ["header", "prefix"].contains(&key.as_str())
+                        && value.as_str().is_some_and(|s| !contains_secret(s))
                     {
                         value.clone()
                     } else if !sensitive
@@ -27,7 +33,7 @@ fn redact(value: &Value, sensitive: bool) -> Value {
                         && value.is_array()
                     {
                         arguments(value.as_array().unwrap())
-                    } else if ["token_env", "bearer_token_env_var", "tokenEnv"]
+                    } else if ["token_env", "value_env", "bearer_token_env_var", "tokenEnv"]
                         .contains(&key.as_str())
                         && value.as_str().is_some_and(env_name)
                     {

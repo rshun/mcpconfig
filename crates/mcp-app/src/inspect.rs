@@ -1,6 +1,6 @@
 //! 只读查看客户端已有 MCP：只返回目标子树，敏感值在离开后端前隐藏。
-use crate::{scope_block_reason, App, AppError};
-use mcp_core::adapters::{self, Format};
+use crate::{App, AppError};
+use mcp_core::adapters::Format;
 use mcp_core::document::ConfigDoc;
 use mcp_core::model::Scope;
 use serde_json::Value;
@@ -28,14 +28,17 @@ impl App {
         client_id: &str,
         scope: Scope,
     ) -> Result<ExistingConfig, AppError> {
-        let adapter = adapters::by_id(client_id)
+        let adapter_set = self.adapter_set()?;
+        let adapter = adapter_set
+            .by_id(client_id)
             .ok_or_else(|| AppError::UnknownClient(client_id.to_string()))?;
-        if let Some(reason) = scope_block_reason(client_id, scope) {
+        if let Some(reason) = self.check_scope_block(adapter, scope) {
             return Err(AppError::Other(reason));
         }
-        let path = self
-            .target_path(adapter, scope)
+        let loc = self
+            .target_location(adapter, scope)
             .ok_or_else(|| AppError::Other("缺少配置目录，无法定位当前作用域的配置".into()))?;
+        let path = loc.path;
         // Grok 等客户端有 TOML / JSON 候选，必须按实际命中的文件解析。
         let format = adapter.format_for_path(&path);
         let mut result = ExistingConfig {
@@ -67,7 +70,7 @@ impl App {
                 ))
             })?;
         let entries = doc
-            .entries(&adapter.root_key_for_path(scope, &path))
+            .entries(&loc.root_key)
             .map_err(|_| AppError::Other("MCP 配置容器结构无效，应为对象或表".into()))?;
         for (name, entry) in entries {
             if !entry.is_object() {

@@ -162,7 +162,9 @@ fn scopes_are_isolated_and_unknown_or_unsupported_requests_fail() {
     }
     assert!(app.read_client_config("not-an-agent", Scope::User).is_err());
     assert!(app.read_client_config("codex", Scope::Local).is_err());
-    assert!(app.read_client_config("claude-code", Scope::Local).is_err());
+    // 已提供 project_root 时 Claude Code 本地级已打通（指向 .claude.json#projects.<proj>.mcpServers）
+    let cc_local = app.read_client_config("claude-code", Scope::Local).unwrap();
+    assert!(!cc_local.existed);
     let no_project = App::with_home(
         app.engine.home().to_path_buf(),
         HostEnv {
@@ -171,6 +173,9 @@ fn scopes_are_isolated_and_unknown_or_unsupported_requests_fail() {
         },
         app.platform,
     );
+    assert!(no_project
+        .read_client_config("claude-code", Scope::Local)
+        .is_err());
     assert!(no_project
         .read_client_config("codex", Scope::Project)
         .is_err());

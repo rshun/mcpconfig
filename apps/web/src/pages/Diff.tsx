@@ -6,17 +6,22 @@ import type { FileDto, MergeMode, PlanDto } from "../types";
 function DiffBody({ file }: { file: FileDto }) {
   return <pre className="diff-body">{file.diff.split("\n").map((line, index) => <div key={index} className={`diff-line ${line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : "ctx"}`}>{line || " "}</div>)}</pre>;
 }
-export function DiffPage({ plan, error, applying, onApply, onBack, mode, onModeChange, onReplan, planning }: {
+export function DiffPage({ plan, error, applying, onApply, onBack, mode, onModeChange, allowCommentStrip, onAllowCommentStripChange, onReplan, planning }: {
   error?: string | null;
   plan: PlanDto | null; applying: boolean; onApply: () => void; onBack: () => void; mode: MergeMode;
-  onModeChange: (mode: MergeMode) => void; onReplan: () => void; planning: boolean;
+  onModeChange: (mode: MergeMode) => void;
+  allowCommentStrip?: boolean; onAllowCommentStripChange?: (allow: boolean) => void;
+  onReplan: () => void; planning: boolean;
 }) {
   const writable = plan?.files.filter((file) => file.willWrite && !file.blocked) ?? [];
   const blocked = plan?.files.filter((file) => file.blocked) ?? [];
+  const hasCommentBlock = blocked.some((file) => file.blocked?.includes("注释"));
   return <section className="preview-page" aria-label="分发变更预览">
     {error && <Banner tone="danger">{error}</Banner>}
     <div className="preview-intro"><span className="preview-symbol"><Icon name="shield" size={23} /></span><div><h3>先核对影响，再确认写入</h3><p>只处理勾选的配置，其他条目保持不变。实际写入前会备份原文。</p></div></div>
-    <details className="preview-options"><summary>写入策略：{mode === "merge" ? "字段合并" : "整条替换"}</summary><label className="field-label">处理同名 MCP<select className="select" aria-label="预览写入策略" value={mode} disabled={applying || planning} onChange={(event) => onModeChange(event.target.value as MergeMode)}><option value="merge">字段合并 · 保留其他字段</option><option value="replace">整条替换 · 未选中的条目保留</option></select></label><p className="field-hint">策略变更后需要重新生成预览。</p></details>
+    <details className="preview-options" open={hasCommentBlock || undefined}><summary>写入策略：{mode === "merge" ? "字段合并" : "整条替换"}{allowCommentStrip ? " · 允许移除内部注释" : ""}</summary><label className="field-label">处理同名 MCP<select className="select" aria-label="预览写入策略" value={mode} disabled={applying || planning} onChange={(event) => onModeChange(event.target.value as MergeMode)}><option value="merge">字段合并 · 保留其他字段</option><option value="replace">整条替换 · 未选中的条目保留</option></select></label>
+      {onAllowCommentStripChange && <label className="field-label" style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}><input type="checkbox" aria-label="允许覆盖含内部注释的 JSONC 条目" checked={!!allowCommentStrip} disabled={applying || planning} onChange={(event) => onAllowCommentStripChange(event.target.checked)} /><span>允许覆盖自身包含内部注释的 JSONC 条目（外层及兄弟注释始终无损保留）</span></label>}
+      <p className="field-hint">策略变更后需要重新生成预览。</p></details>
     {!plan ? <div className="welcome-state compact"><h3>需要重新预览</h3><p>选择或写入策略已变化，旧预览不能用于确认。</p><button className="btn primary" disabled={planning} onClick={onReplan}>{planning ? "正在生成…" : "重新生成预览"}</button></div> : <>
       <div className="preview-counts"><b>{plan.entryCount} 个 MCP</b><span>涉及 {plan.files.length} 个实际文件</span><span className={blocked.length ? "warning-text" : ""}>{writable.length} 个待写入{blocked.length ? ` · ${blocked.length} 个被阻止` : ""}</span></div>
       {!!plan.issues.length && <Banner tone="warn"><div>{plan.issues.map((issue) => <p key={issue}>{issue}</p>)}</div></Banner>}
