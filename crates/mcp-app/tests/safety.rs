@@ -122,16 +122,28 @@ fn vscode_native_and_portable_paths_use_their_own_roots_for_plan_detect_and_insp
 }
 
 #[test]
-fn commented_vscode_file_is_blocked_until_explicit_comment_strip_permission() {
+fn commented_vscode_file_preserves_outer_comments_and_blocks_interior_comments_until_explicit_permission() {
     let (dir, app, mut request) = fixture();
     let target = dir.join("project/.vscode/mcp.json");
     fs::create_dir_all(target.parent().unwrap()).unwrap();
-    let original = "{ // 注释\n\"servers\":{}}";
-    fs::write(&target, original).unwrap();
+
+    // 1. 容器外与兄弟注释通过词法 Span Patching 无损保留，无需丢注释许可
+    let outer_commented = "{\n  // 顶部外层注释\n  \"servers\": {\n    // 既有条目注释\n    \"keep\": { \"command\": \"keep\" }\n  }\n}";
+    fs::write(&target, outer_commented).unwrap();
     request.scope = Scope::Project;
     request.selection = Some(BTreeMap::from([("vscode".into(), vec!["alpha".into()])]));
+    let outer_plan = app.plan(&request).unwrap();
+    assert_eq!(outer_plan.writable(), 1);
+    assert_eq!(app.apply(&outer_plan.plans, false).unwrap().written(), 1);
+    let after_outer = fs::read_to_string(&target).unwrap();
+    assert!(after_outer.contains("// 顶部外层注释"));
+    assert!(after_outer.contains("// 既有条目注释"));
+
+    // 2. 被覆盖条目值自身包含内部注释时，默认阻断写入，显式开启 allow_comment_strip 后才放行
+    let interior_commented = "{\n  \"servers\": {\n    \"alpha\": { /* 条目内部注释 */ \"command\": \"old\" }\n  }\n}";
+    fs::write(&target, interior_commented).unwrap();
     assert_eq!(app.plan(&request).unwrap().writable(), 0);
-    assert_eq!(fs::read_to_string(&target).unwrap(), original);
+    assert_eq!(fs::read_to_string(&target).unwrap(), interior_commented);
     request.allow_comment_strip = true;
     let plan = app.plan(&request).unwrap();
     assert_eq!(app.apply(&plan.plans, false).unwrap().written(), 1);

@@ -7,9 +7,10 @@
 pub mod time;
 
 use mcp_core::adapters::Format;
-use mcp_core::document::ConfigDoc;
+use mcp_core::document::{ConfigDoc, ManagedKeys};
 use mcp_core::plan::FilePlan;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -156,6 +157,32 @@ impl BackupManifest {
     }
 }
 
+// ---------------------------------------------------------------- 已托管键骨架（3-Way Merge 基线）
+
+fn default_managed_state_version() -> u32 {
+    1
+}
+
+/// 零密钥已托管键骨架状态库：仅记录各目标容器内由 MCP Hub 写入的键结构，绝不保存任何标量或凭据值。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ManagedState {
+    #[serde(default = "default_managed_state_version")]
+    pub version: u32,
+    #[serde(default)]
+    pub containers: BTreeMap<String, BTreeMap<String, ManagedKeys>>,
+}
+
+impl ManagedState {
+    pub fn entries_for(&self, path: &Path, root_key: &[String]) -> Option<&BTreeMap<String, ManagedKeys>> {
+        let key = managed_container_key(path, root_key).ok()?;
+        self.containers.get(&key)
+    }
+}
+
+pub fn managed_container_key(path: &Path, root_key: &[String]) -> Result<String> {
+    Ok(format!("{}#{}", file_key(path)?, root_key.join("/")))
+}
+
 // ---------------------------------------------------------------- 引擎
 
 pub struct Engine {
@@ -196,6 +223,36 @@ impl Engine {
 
     pub fn audit_path(&self) -> PathBuf {
         self.home.join("audit.log")
+    }
+
+    pub fn managed_state_path(&self) -> PathBuf {
+        self.home.join("managed-state.json")
+    }
+
+    /// 只读加载已托管键骨架状态；文件不存在或损坏时安全回退为空状态（绝不创建目录或文件）。
+    pub fn load_managed_state(&self) -> ManagedState {
+        let path = self.managed_state_path();
+        let Ok(text) = fs::read_to_string(&path) else {
+            return ManagedState::default();
+        };
+        serde_json::from_str::<ManagedState>(&text).unwrap_or_default()
+    }
+
+    fn record_managed_writes(&self, written_plans: &[&FilePlan]) -> Result<()> {
+        if written_plans.is_empty() {
+            return Ok(());
+        }
+        let mut state = self.load_managed_state();
+        state.version = 1;
+        for plan in written_plans {
+            let key = managed_container_key(Path::new(&plan.path), &plan.root_key)?;
+            let container = state.containers.entry(key).or_default();
+            for change in &plan.changes {
+                container.insert(change.name.clone(), change.managed_keys.clone());
+            }
+        }
+        let serialized = serde_json::to_string_pretty(&state).map_err(io_err)?;
+        atomic_write(&self.managed_state_path(), &serialized)
     }
 
     /// 读取文件；不存在返回 `None`（不算错误）。
@@ -266,15 +323,19 @@ impl Engine {
         receipt.backup_id = Some(manifest.id.clone());
 
         // 2) 逐个写入 + 校验，失败立即回滚该文件
+        let mut written_plans: Vec<&FilePlan> = Vec::new();
         for (idx, p) in writable.iter().enumerate() {
             let entry = &manifest.files[idx];
             match self.write_and_verify(p) {
-                Ok(()) => receipt.outcomes.push(FileOutcome {
-                    client_id: p.client_id.clone(),
-                    path: p.path.clone(),
-                    status: OutcomeStatus::Written,
-                    message: None,
-                }),
+                Ok(()) => {
+                    written_plans.push(p);
+                    receipt.outcomes.push(FileOutcome {
+                        client_id: p.client_id.clone(),
+                        path: p.path.clone(),
+                        status: OutcomeStatus::Written,
+                        message: None,
+                    });
+                }
                 Err(IoError::Conflict(message)) => receipt.outcomes.push(FileOutcome {
                     client_id: p.client_id.clone(),
                     path: p.path.clone(),
@@ -291,6 +352,11 @@ impl Engine {
                     ));
                 }
             }
+        }
+
+        // 更新零密钥已托管键骨架基线（仅记录已成功落盘的计划）
+        if !written_plans.is_empty() {
+            let _ = self.record_managed_writes(&written_plans);
         }
 
         // 3) 审计
@@ -310,6 +376,15 @@ impl Engine {
     }
 
     fn write_and_verify(&self, plan: &FilePlan) -> Result<()> {
+        if plan
+            .new_content
+            .contains(mcp_core::adapters::INLINE_PLACEHOLDER_PREFIX)
+        {
+            return Err(IoError::VerifyFailed(format!(
+                "{} 包含未解析的内联密钥哨兵，已拒绝写入",
+                plan.path
+            )));
+        }
         let path = Path::new(&plan.path);
         let current = self.read_text(path)?;
         if current.as_deref()
@@ -699,6 +774,10 @@ fn extension_of(path: &str) -> &'static str {
     let lower = path.to_ascii_lowercase();
     if lower.ends_with(".toml") {
         ".toml"
+    } else if lower.ends_with(".yaml") {
+        ".yaml"
+    } else if lower.ends_with(".yml") {
+        ".yml"
     } else if lower.ends_with(".jsonc") {
         ".jsonc"
     } else if lower.ends_with(".json") {
@@ -779,6 +858,8 @@ pub fn format_of(path: &str) -> Format {
     let lower = path.to_ascii_lowercase();
     if lower.ends_with(".toml") {
         Format::Toml
+    } else if lower.ends_with(".yaml") || lower.ends_with(".yml") {
+        Format::Yaml
     } else if lower.ends_with(".jsonc") {
         Format::Jsonc
     } else {

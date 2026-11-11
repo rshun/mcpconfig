@@ -1,9 +1,10 @@
-//! 14 个客户端的适配器定义。
+//! 14 个内置客户端的适配器定义。
 //!
 //! 全部用声明式 `AdapterSpec`；只有 VS Code 因根键随作用域变化而需要钩子。
 
 use super::{Adapter, AdapterSpec, ClientKind, EnabledKey, EntryStyle, Format, SecretStyle};
 use crate::model::Scope;
+use std::borrow::Cow;
 
 /// 通用适配器：行为完全由 spec 决定。
 pub struct Plain {
@@ -14,10 +15,10 @@ pub struct Plain {
 }
 
 impl Adapter for Plain {
-    fn id(&self) -> &'static str {
+    fn id(&self) -> &str {
         self.id
     }
-    fn display_name(&self) -> &'static str {
+    fn display_name(&self) -> &str {
         self.name
     }
     fn kind(&self) -> ClientKind {
@@ -40,18 +41,18 @@ pub static WORKBUDDY: Plain = Plain {
     kind: ClientKind::Cli,
     spec: AdapterSpec {
         format: Format::Json,
-        root_key: &["mcpServers"],
+        root_key: Cow::Borrowed(&["mcpServers"]),
         entry_style: EntryStyle::CommandArgs,
-        env_key: "env",
-        remote_url_key: "url",
-        type_field: Some("type"),
+        env_key: Cow::Borrowed("env"),
+        remote_url_key: Cow::Borrowed("url"),
+        type_field: Some(Cow::Borrowed("type")),
         stdio_type_value: None,
         remote_type_value: None,
         enabled_key: EnabledKey::None,
         supports_cwd: true,
         secret_style: SecretStyle::LiteralOnly,
         timeout_field: None,
-        scopes: USER,
+        scopes: Cow::Borrowed(USER),
     },
 };
 
@@ -63,18 +64,18 @@ pub static CLAUDE_CODE: Plain = Plain {
     kind: ClientKind::Cli,
     spec: AdapterSpec {
         format: Format::Json,
-        root_key: &["mcpServers"],
+        root_key: Cow::Borrowed(&["mcpServers"]),
         entry_style: EntryStyle::CommandArgs,
-        env_key: "env",
-        remote_url_key: "url",
-        type_field: Some("type"),
-        stdio_type_value: Some("stdio"),
+        env_key: Cow::Borrowed("env"),
+        remote_url_key: Cow::Borrowed("url"),
+        type_field: Some(Cow::Borrowed("type")),
+        stdio_type_value: Some(Cow::Borrowed("stdio")),
         remote_type_value: None,
         enabled_key: EnabledKey::None,
         supports_cwd: false,
-        secret_style: SecretStyle::EnvExpansion("${", "}"),
+        secret_style: SecretStyle::EnvExpansion(Cow::Borrowed("${"), Cow::Borrowed("}")),
         timeout_field: None,
-        scopes: ALL_SCOPES,
+        scopes: Cow::Borrowed(ALL_SCOPES),
     },
 };
 
@@ -86,10 +87,10 @@ pub static CODEX: Plain = Plain {
     kind: ClientKind::Cli,
     spec: AdapterSpec {
         format: Format::Toml,
-        root_key: &["mcp_servers"],
+        root_key: Cow::Borrowed(&["mcp_servers"]),
         entry_style: EntryStyle::CommandArgs,
-        env_key: "env",
-        remote_url_key: "url",
+        env_key: Cow::Borrowed("env"),
+        remote_url_key: Cow::Borrowed("url"),
         type_field: None,
         stdio_type_value: None,
         remote_type_value: None,
@@ -97,8 +98,8 @@ pub static CODEX: Plain = Plain {
         supports_cwd: true,
         // 原生字段：bearer_token_env_var，密钥永不落盘
         secret_style: SecretStyle::NativeEnvField,
-        timeout_field: Some("startup_timeout_sec"),
-        scopes: USER_PROJECT,
+        timeout_field: Some(Cow::Borrowed("startup_timeout_sec")),
+        scopes: Cow::Borrowed(USER_PROJECT),
     },
 };
 
@@ -110,10 +111,10 @@ pub static KIMI_CODE: Plain = Plain {
     kind: ClientKind::Cli,
     spec: AdapterSpec {
         format: Format::Json,
-        root_key: &["mcpServers"],
+        root_key: Cow::Borrowed(&["mcpServers"]),
         entry_style: EntryStyle::CommandArgs,
-        env_key: "env",
-        remote_url_key: "url",
+        env_key: Cow::Borrowed("env"),
+        remote_url_key: Cow::Borrowed("url"),
         type_field: None,
         stdio_type_value: None,
         remote_type_value: None,
@@ -121,7 +122,7 @@ pub static KIMI_CODE: Plain = Plain {
         supports_cwd: true,
         secret_style: SecretStyle::LiteralOnly,
         timeout_field: None,
-        scopes: USER,
+        scopes: Cow::Borrowed(USER),
     },
 };
 
@@ -133,19 +134,19 @@ pub static OPENCODE: Plain = Plain {
     kind: ClientKind::Cli,
     spec: AdapterSpec {
         format: Format::Jsonc,
-        root_key: &["mcp", "servers"],
+        root_key: Cow::Borrowed(&["mcp", "servers"]),
         entry_style: EntryStyle::CommandArray,
-        env_key: "environment",
-        remote_url_key: "url",
-        type_field: Some("type"),
-        stdio_type_value: Some("local"),
-        remote_type_value: Some("remote"),
+        env_key: Cow::Borrowed("environment"),
+        remote_url_key: Cow::Borrowed("url"),
+        type_field: Some(Cow::Borrowed("type")),
+        stdio_type_value: Some(Cow::Borrowed("local")),
+        remote_type_value: Some(Cow::Borrowed("remote")),
         // v2 用 disabled，语义反转
         enabled_key: EnabledKey::Disabled,
         supports_cwd: true,
-        secret_style: SecretStyle::EnvExpansion("{env:", "}"),
+        secret_style: SecretStyle::EnvExpansion(Cow::Borrowed("{env:"), Cow::Borrowed("}")),
         timeout_field: None,
-        scopes: USER_PROJECT,
+        scopes: Cow::Borrowed(USER_PROJECT),
     },
 };
 
@@ -154,10 +155,10 @@ pub static OPENCODE: Plain = Plain {
 pub struct VsCode;
 
 impl Adapter for VsCode {
-    fn id(&self) -> &'static str {
+    fn id(&self) -> &str {
         "vscode"
     }
-    fn display_name(&self) -> &'static str {
+    fn display_name(&self) -> &str {
         "VS Code"
     }
     fn kind(&self) -> ClientKind {
@@ -166,18 +167,18 @@ impl Adapter for VsCode {
     fn spec(&self) -> &AdapterSpec {
         static S: AdapterSpec = AdapterSpec {
             format: Format::Json,
-            root_key: &["servers"],
+            root_key: Cow::Borrowed(&["servers"]),
             entry_style: EntryStyle::CommandArgs,
-            env_key: "env",
-            remote_url_key: "url",
-            type_field: Some("type"),
+            env_key: Cow::Borrowed("env"),
+            remote_url_key: Cow::Borrowed("url"),
+            type_field: Some(Cow::Borrowed("type")),
             stdio_type_value: None,
             remote_type_value: None,
             enabled_key: EnabledKey::None,
             supports_cwd: false,
             secret_style: SecretStyle::LiteralOnly,
             timeout_field: None,
-            scopes: USER_PROJECT,
+            scopes: Cow::Borrowed(USER_PROJECT),
         };
         &S
     }
@@ -221,19 +222,19 @@ pub static ANTIGRAVITY: Plain = Plain {
     kind: ClientKind::Ide,
     spec: AdapterSpec {
         format: Format::Json,
-        root_key: &["mcpServers"],
+        root_key: Cow::Borrowed(&["mcpServers"]),
         entry_style: EntryStyle::CommandArgs,
-        env_key: "env",
+        env_key: Cow::Borrowed("env"),
         // 远程必须用 serverUrl，不支持 url / httpUrl
-        remote_url_key: "serverUrl",
+        remote_url_key: Cow::Borrowed("serverUrl"),
         type_field: None,
         stdio_type_value: None,
         remote_type_value: None,
         enabled_key: EnabledKey::None,
         supports_cwd: false,
         secret_style: SecretStyle::LiteralOnly,
-        timeout_field: Some("timeoutSeconds"),
-        scopes: USER_PROJECT,
+        timeout_field: Some(Cow::Borrowed("timeoutSeconds")),
+        scopes: Cow::Borrowed(USER_PROJECT),
     },
 };
 
@@ -245,18 +246,18 @@ pub static GROK: Plain = Plain {
     kind: ClientKind::Cli,
     spec: AdapterSpec {
         format: Format::Toml,
-        root_key: &["mcp_servers"],
+        root_key: Cow::Borrowed(&["mcp_servers"]),
         entry_style: EntryStyle::CommandArgs,
-        env_key: "env",
-        remote_url_key: "url",
+        env_key: Cow::Borrowed("env"),
+        remote_url_key: Cow::Borrowed("url"),
         type_field: None,
         stdio_type_value: None,
         remote_type_value: None,
         enabled_key: EnabledKey::Enabled,
         supports_cwd: false,
-        secret_style: SecretStyle::EnvExpansion("${", "}"),
-        timeout_field: Some("startup_timeout_sec"),
-        scopes: USER_PROJECT,
+        secret_style: SecretStyle::EnvExpansion(Cow::Borrowed("${"), Cow::Borrowed("}")),
+        timeout_field: Some(Cow::Borrowed("startup_timeout_sec")),
+        scopes: Cow::Borrowed(USER_PROJECT),
     },
 };
 
@@ -268,10 +269,10 @@ pub static CURSOR: Plain = Plain {
     kind: ClientKind::Ide,
     spec: AdapterSpec {
         format: Format::Json,
-        root_key: &["mcpServers"],
+        root_key: Cow::Borrowed(&["mcpServers"]),
         entry_style: EntryStyle::CommandArgs,
-        env_key: "env",
-        remote_url_key: "url",
+        env_key: Cow::Borrowed("env"),
+        remote_url_key: Cow::Borrowed("url"),
         type_field: None,
         stdio_type_value: None,
         remote_type_value: None,
@@ -279,7 +280,7 @@ pub static CURSOR: Plain = Plain {
         supports_cwd: false,
         secret_style: SecretStyle::LiteralOnly,
         timeout_field: None,
-        scopes: USER,
+        scopes: Cow::Borrowed(USER),
     },
 };
 
@@ -291,10 +292,10 @@ pub static CLINE: Plain = Plain {
     kind: ClientKind::Ide,
     spec: AdapterSpec {
         format: Format::Json,
-        root_key: &["mcpServers"],
+        root_key: Cow::Borrowed(&["mcpServers"]),
         entry_style: EntryStyle::CommandArgs,
-        env_key: "env",
-        remote_url_key: "url",
+        env_key: Cow::Borrowed("env"),
+        remote_url_key: Cow::Borrowed("url"),
         type_field: None,
         stdio_type_value: None,
         remote_type_value: None,
@@ -302,7 +303,7 @@ pub static CLINE: Plain = Plain {
         supports_cwd: false,
         secret_style: SecretStyle::LiteralOnly,
         timeout_field: None,
-        scopes: USER,
+        scopes: Cow::Borrowed(USER),
     },
 };
 
@@ -314,10 +315,10 @@ pub static GEMINI_CLI: Plain = Plain {
     kind: ClientKind::Cli,
     spec: AdapterSpec {
         format: Format::Json,
-        root_key: &["mcpServers"],
+        root_key: Cow::Borrowed(&["mcpServers"]),
         entry_style: EntryStyle::CommandArgs,
-        env_key: "env",
-        remote_url_key: "url",
+        env_key: Cow::Borrowed("env"),
+        remote_url_key: Cow::Borrowed("url"),
         type_field: None,
         stdio_type_value: None,
         remote_type_value: None,
@@ -325,7 +326,7 @@ pub static GEMINI_CLI: Plain = Plain {
         supports_cwd: false,
         secret_style: SecretStyle::LiteralOnly,
         timeout_field: None,
-        scopes: USER,
+        scopes: Cow::Borrowed(USER),
     },
 };
 
@@ -337,10 +338,10 @@ pub static CLAUDE_DESKTOP: Plain = Plain {
     kind: ClientKind::Desktop,
     spec: AdapterSpec {
         format: Format::Json,
-        root_key: &["mcpServers"],
+        root_key: Cow::Borrowed(&["mcpServers"]),
         entry_style: EntryStyle::CommandArgs,
-        env_key: "env",
-        remote_url_key: "url",
+        env_key: Cow::Borrowed("env"),
+        remote_url_key: Cow::Borrowed("url"),
         type_field: None,
         stdio_type_value: None,
         remote_type_value: None,
@@ -348,7 +349,7 @@ pub static CLAUDE_DESKTOP: Plain = Plain {
         supports_cwd: false,
         secret_style: SecretStyle::LiteralOnly,
         timeout_field: None,
-        scopes: USER,
+        scopes: Cow::Borrowed(USER),
     },
 };
 
@@ -360,19 +361,19 @@ pub static WINDSURF: Plain = Plain {
     kind: ClientKind::Ide,
     spec: AdapterSpec {
         format: Format::Json,
-        root_key: &["mcpServers"],
+        root_key: Cow::Borrowed(&["mcpServers"]),
         entry_style: EntryStyle::CommandArgs,
-        env_key: "env",
-        remote_url_key: "serverUrl",
+        env_key: Cow::Borrowed("env"),
+        remote_url_key: Cow::Borrowed("serverUrl"),
         type_field: None,
         stdio_type_value: None,
         remote_type_value: None,
         enabled_key: EnabledKey::None,
         supports_cwd: false,
         // 官方支持 ${env:VAR} 在 headers / url 中插值
-        secret_style: SecretStyle::EnvExpansion("${env:", "}"),
+        secret_style: SecretStyle::EnvExpansion(Cow::Borrowed("${env:"), Cow::Borrowed("}")),
         timeout_field: None,
-        scopes: USER,
+        scopes: Cow::Borrowed(USER),
     },
 };
 
@@ -384,10 +385,10 @@ pub static TRAE: Plain = Plain {
     kind: ClientKind::Ide,
     spec: AdapterSpec {
         format: Format::Json,
-        root_key: &["mcpServers"],
+        root_key: Cow::Borrowed(&["mcpServers"]),
         entry_style: EntryStyle::CommandArgs,
-        env_key: "env",
-        remote_url_key: "url",
+        env_key: Cow::Borrowed("env"),
+        remote_url_key: Cow::Borrowed("url"),
         type_field: None,
         stdio_type_value: None,
         remote_type_value: None,
@@ -395,7 +396,7 @@ pub static TRAE: Plain = Plain {
         supports_cwd: true,
         secret_style: SecretStyle::LiteralOnly,
         timeout_field: None,
-        scopes: USER_PROJECT,
+        scopes: Cow::Borrowed(USER_PROJECT),
     },
 };
 
@@ -418,17 +419,17 @@ static ALL: &[&dyn Adapter] = &[
     &TRAE,
 ];
 
-/// 全部适配器（14 个，顺序即 UI 列顺序）。
+/// 全部内置适配器（14 个，顺序即默认 UI 列顺序）。
 pub fn all() -> &'static [&'static dyn Adapter] {
     ALL
 }
 
-/// 按 id 查找。
+/// 按 id 查找内置适配器。
 pub fn by_id(id: &str) -> Option<&'static dyn Adapter> {
     ALL.iter().copied().find(|a| a.id() == id)
 }
 
-/// 按 id 列表查找；未知 id 报错。
+/// 按 id 列表查找内置适配器；未知 id 报错。
 pub fn by_ids(ids: &[String]) -> crate::Result<Vec<&'static dyn Adapter>> {
     ids.iter()
         .map(|id| by_id(id).ok_or_else(|| crate::Error::UnknownClient(id.clone())))

@@ -13,11 +13,12 @@ let importSerial = 0;
 const importScans = new Map<string, ImportScan>();
 const importPreviews = new Map<string, ImportPreview & { scope: Scope; scanId: string }>();
 let distributionSerial = 0;
+let catalogRevisionSerial = 1;
 let distributionPreview: { id: string; request: string; source: string; settings: string; created: number; plan: Omit<PlanDto, "previewId"> } | null = null;
 
 function distributionRequest(args: Record<string, unknown> | undefined) {
   return JSON.stringify({ catalogPath: args?.catalogPath ?? settings.catalogPath, selection: args?.selection, scope: args?.scope ?? "user",
-    projectRoot: args?.scope === "project" ? args.projectRoot ?? null : null, mode: args?.mode ?? "merge", allowCommentStrip: args?.allowCommentStrip ?? false });
+    projectRoot: args?.scope !== "user" ? args?.projectRoot ?? null : null, mode: args?.mode ?? "merge", allowCommentStrip: args?.allowCommentStrip ?? false });
 }
 
 const params =
@@ -157,7 +158,7 @@ function bearerText(id: string, env: string) {
     case "brace":
       return `"Authorization": "Bearer {env:${env}}"`;
     default:
-      return `"Authorization": "Bearer <需内联:${env}>"`;
+      return `"Authorization": "[已隐藏]"`;
   }
 }
 
@@ -307,7 +308,7 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
     }
     case "app_info":
       return {
-        version: "0.5.0",
+        version: "0.6.0",
         platform: "windows",
         home: "C:/Users/Chensh",
         projectRoot: "C:/Dev/mcpconfig",
@@ -339,7 +340,7 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
     case "read_client_config": {
       const client = CLIENTS.find(([id]) => id === args?.clientId);
       if (!client) throw new Error("未知客户端");
-      if (!STYLES[client[0]].scopes.includes(scope) || (client[0] === "claude-code" && scope === "local")) {
+      if (!STYLES[client[0]].scopes.includes(scope)) {
         throw new Error("不支持当前作用域");
       }
       return {
@@ -385,14 +386,50 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
     case "load_catalog":
       return {
         exists: true,
-        catalog: { version: 1, entries: ENTRIES.map(({ desc, tokenEnv, ...entry }) => ({ ...entry, description: desc, ...(tokenEnv ? { auth: { type: "bearer", token_env: tokenEnv } } : {}) })) },
+        revisionId: `mock-rev-${catalogRevisionSerial}`,
+        catalog: {
+          version: 1,
+          entries: ENTRIES.map(({ desc, tokenEnv, env, ...entry }) => ({
+            ...entry,
+            ...(env
+              ? {
+                  env: Object.fromEntries(
+                    Object.entries(env).map(([k, v]) => [
+                      k,
+                      /^\$\{/.test(v) || !/(KEY|TOKEN|SECRET|PASSWORD|PAT)/i.test(k) ? v : "[已隐藏]",
+                    ]),
+                  ),
+                }
+              : {}),
+            description: desc,
+            ...(tokenEnv ? { auth: { type: "bearer", token_env: tokenEnv } } : {}),
+          })),
+        },
         issues: [],
         entryCount: ENTRIES.length,
       } as T;
 
     case "save_catalog": {
+      if (args?.revisionId && args.revisionId !== `mock-rev-${catalogRevisionSerial}`) {
+        throw new Error("配置库修订号已过期，请刷新后重试");
+      }
+      const renames = (args?.renames as Record<string, string> | undefined) ?? {};
       const catalog = args?.catalog as { entries: any[] };
-      ENTRIES.splice(0, ENTRIES.length, ...catalog.entries.map((entry) => ({ ...entry, desc: entry.description ?? "", tokenEnv: entry.auth?.token_env, scope: entry.scope ?? "inherit" })));
+      const nextEntries = catalog.entries.map((entry) => {
+        const prevName = renames[entry.name] ?? entry.name;
+        const prev = ENTRIES.find((e) => e.name === prevName);
+        const env = entry.env
+          ? Object.fromEntries(
+              Object.entries(entry.env as Record<string, string>).map(([k, v]) => [
+                k,
+                v === "[已隐藏]" && prev?.env?.[k] ? prev.env[k] : v,
+              ]),
+            )
+          : undefined;
+        return { ...entry, env, desc: entry.description ?? "", tokenEnv: entry.auth?.token_env, scope: entry.scope ?? "inherit" };
+      });
+      ENTRIES.splice(0, ENTRIES.length, ...nextEntries);
+      catalogRevisionSerial++;
       return [] as unknown as T;
     }
 

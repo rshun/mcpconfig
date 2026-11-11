@@ -22,7 +22,10 @@ pub mod redact;
 pub mod resolve;
 
 pub use error::{Error, Result};
-pub use model::{Auth, Catalog, EntryOverride, McpEntry, Platform, Scope, SecretSource, Transport};
+pub use model::{
+    Auth, Catalog, EntryOverride, McpEntry, Platform, RemoteKind, RemoteTransport, Scope,
+    SecretSource, StdioTransport, Transport, TransportSpec,
+};
 
 use serde_json::Value;
 

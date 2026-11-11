@@ -1,5 +1,5 @@
 //! Agent → 配置库：原文留在后端，预览绑定两端快照；凭据字段可映射为环境变量，或按用户选择原样复制。
-use crate::{scope_block_reason, App, AppError};
+use crate::{App, AppError};
 use mcp_core::{
     adapters::{self, Adapter, EnabledKey, EntryStyle},
     catalog,
@@ -102,6 +102,7 @@ struct Snapshot {
     target_text: Option<String>,
     catalog: Catalog,
     settings: Option<String>,
+    custom_adapters: Option<String>,
     context: (PathBuf, PathBuf, Option<PathBuf>, Platform, PathBuf),
     items: Vec<(ImportItem, Option<Converted>)>,
     created: Instant,
@@ -154,20 +155,22 @@ impl ImportSessions {
         if !target.is_absolute() {
             return Err(fail("导入配置库必须使用绝对路径"));
         }
-        let adapter = adapters::by_id(client).ok_or_else(|| fail("未知 Agent"))?;
-        if let Some(reason) = scope_block_reason(client, scope) {
+        let adapter_set = app.adapter_set()?;
+        let adapter = adapter_set.by_id(client).ok_or_else(|| fail("未知 Agent"))?;
+        if let Some(reason) = app.check_scope_block(adapter, scope) {
             return Err(fail(&reason));
         }
-        let source = app
-            .target_path(adapter, scope)
+        let loc = app
+            .target_location(adapter, scope)
             .ok_or_else(|| fail("无法定位来源配置，请先选择项目目录"))?;
+        let source = loc.path;
         let source_key = mcp_io::file_key(&source)?;
         let target_key = mcp_io::file_key(target)?;
         // 即使另一 Agent 的文件为空或尚不存在，也不能将其当作配置库覆盖。
-        for client in adapters::all() {
+        for other_client in adapter_set.all() {
             // local 的 #projects.<proj> 是虚拟位置，其实际 .claude.json 已在 user 范围保护。
-            for scope in [Scope::User, Scope::Project] {
-                let candidates = adapters::paths::candidates(client.id(), scope, app.platform);
+            for cand_scope in [Scope::User, Scope::Project] {
+                let candidates = other_client.path_candidates(cand_scope, app.platform);
                 for path in app.env.expand_all(&candidates, app.platform) {
                     if mcp_io::file_key(&path)? == target_key {
                         return Err(fail("配置库不能使用任何已知 Agent 的配置路径"));
@@ -177,6 +180,8 @@ impl ImportSessions {
         }
         if source_key == target_key
             || target_key == mcp_io::file_key(&app.settings_path())?
+            || target_key == mcp_io::file_key(&app.custom_adapters_path())?
+            || target_key == mcp_io::file_key(&app.engine.managed_state_path())?
             || target_key == mcp_io::file_key(&app.engine.audit_path())?
         {
             return Err(fail("配置库不能覆盖来源 Agent 文件、软件设置或审计日志"));
@@ -189,7 +194,7 @@ impl ImportSessions {
         )
         .map_err(|_| fail("源配置解析失败，未显示原文"))?;
         let entries = doc
-            .entries(&adapter.root_key_for_path(scope, &source))
+            .entries(&loc.root_key)
             .map_err(|_| fail("来源 MCP 容器结构无效"))?;
         let target_text = read(target)?;
         let catalog = match &target_text {
@@ -249,6 +254,7 @@ impl ImportSessions {
                 target_text,
                 catalog,
                 settings: read(&app.settings_path())?,
+                custom_adapters: read(&app.custom_adapters_path())?,
                 context: context(app),
                 items,
                 created: Instant::now(),
@@ -462,10 +468,14 @@ fn verify(app: &App, snapshot: &Snapshot) -> Result<(), AppError> {
     if snapshot.created.elapsed() >= TTL
         || context(app) != snapshot.context
         || read(&app.settings_path())? != snapshot.settings
+        || read(&app.custom_adapters_path())? != snapshot.custom_adapters
     {
         return Err(fail("导入上下文或软件设置已变化，请重新扫描"));
     }
-    let adapter = adapters::by_id(&snapshot.client).ok_or_else(|| fail("未知来源"))?;
+    let adapter_set = app.adapter_set()?;
+    let adapter = adapter_set
+        .by_id(&snapshot.client)
+        .ok_or_else(|| fail("未知来源"))?;
     let path = app
         .target_path(adapter, snapshot.scope)
         .ok_or_else(|| fail("来源路径已变化"))?;
@@ -669,7 +679,8 @@ fn strict(adapter: &dyn Adapter, raw: &Value) -> Result<(), &'static str> {
         "type",
         "bearer_token_env_var",
     ];
-    if let Some(key) = spec.timeout_field {
+    allowed.extend_from_slice(adapters::KNOWN_CLIENT_EXTENSION_KEYS);
+    if let Some(key) = spec.timeout_field.as_deref() {
         allowed.push(key);
     }
     match spec.enabled_key {
@@ -679,6 +690,26 @@ fn strict(adapter: &dyn Adapter, raw: &Value) -> Result<(), &'static str> {
     }
     if obj.keys().any(|k| !allowed.contains(&k.as_str())) {
         return Err("包含无法无损转换的字段，请手动整理后重试");
+    }
+    for list_key in ["alwaysAllow", "autoApprove", "disabledTools"] {
+        if let Some(v) = obj.get(list_key) {
+            let Some(arr) = v.as_array() else {
+                return Err("扩展工具列表字段必须是字符串数组");
+            };
+            if !arr.iter().all(Value::is_string) {
+                return Err("扩展工具列表元素必须全部为字符串");
+            }
+            let probe = serde_json::json!({ "args": v });
+            if mcp_core::redact::config_entry(&probe)["args"] != *v {
+                return Err("扩展工具列表包含疑似敏感凭据，拒绝自动导入");
+            }
+        }
+    }
+    if obj
+        .get("tool_timeout_sec")
+        .is_some_and(|v| v.as_u64().is_none())
+    {
+        return Err("工具超时扩展字段类型无效");
     }
     if ["url", "serverUrl"]
         .iter()
@@ -793,6 +824,7 @@ fn strict(adapter: &dyn Adapter, raw: &Value) -> Result<(), &'static str> {
     }
     if spec
         .timeout_field
+        .as_deref()
         .and_then(|key| obj.get(key))
         .is_some_and(|v| v.as_u64().is_none())
     {

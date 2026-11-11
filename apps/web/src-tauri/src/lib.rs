@@ -15,6 +15,9 @@ pub fn run() {
         .manage(std::sync::Mutex::new(
             mcp_app::distribution::DistributionSessions::default(),
         ))
+        .manage(std::sync::Mutex::new(
+            mcp_app::catalog_session::CatalogSessions::default(),
+        ))
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
             commands::load_settings,

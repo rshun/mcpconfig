@@ -28,6 +28,11 @@ impl VarCtx {
         }
     }
 
+    /// 查询环境变量（显式 `vars` 优先，其次按 `read_process_env` 回退进程环境）。
+    pub fn lookup_var(&self, key: &str) -> Option<String> {
+        self.lookup(key)
+    }
+
     fn lookup(&self, key: &str) -> Option<String> {
         if let Some(v) = self.vars.get(key) {
             return Some(v.clone());
@@ -50,6 +55,21 @@ pub struct MissingVar {
 
 /// 对单个字符串插值。无法解析的占位符**原样保留**，同时记录到 missing。
 pub fn interpolate_str(input: &str, ctx: &VarCtx, missing: &mut Vec<MissingVar>) -> String {
+    interpolate_scoped(input, ctx, true, None, missing)
+}
+
+/// 面向客户端与作用域的分阶段插值：
+/// - 路径宏（`${HOME}` / `${HOME_DIR}` / `${PROJECT_ROOT}` / `${CWD}`）始终按 `ctx` 展开；
+/// - 环境变量（`${ENV:VAR}` / `${env:VAR}` / `${VAR}`）：
+///   - 当 `inline_env == true`（`User` / `Local` 作用域）时，若 `ctx` 可查到值则展开；若缺失且目标支持 `env_dialect`，翻译为目标客户端原生语法（如 `${VAR}` / `{env:VAR}` / `${env:VAR}`），同时记录到 `missing`；
+///   - 当 `inline_env == false`（`Project` 作用域，受 Git 跟踪）时，**绝不内联宿主进程环境变量明文**；若目标支持 `env_dialect` 则翻译为目标客户端原生引用语法，否则保留 `${ENV:VAR}` 原样。
+pub fn interpolate_scoped(
+    input: &str,
+    ctx: &VarCtx,
+    inline_env: bool,
+    env_dialect: Option<(&str, &str)>,
+    missing: &mut Vec<MissingVar>,
+) -> String {
     if !input.contains("${") {
         return input.to_string();
     }
@@ -63,41 +83,77 @@ pub fn interpolate_str(input: &str, ctx: &VarCtx, missing: &mut Vec<MissingVar>)
             // 找匹配的 }
             if let Some(rel_end) = input[i + 2..].find('}') {
                 let end = i + 2 + rel_end;
-                let token = &input[i + 2..end];
+                let token = input[i + 2..end].trim();
                 let raw = &input[i..=end];
 
-                let resolved = match token.strip_prefix("ENV:") {
-                    Some(var) => ctx.lookup(var.trim()).map(|v| (v, var.trim().to_string())),
-                    None => match token.trim() {
-                        "HOME" | "HOME_DIR" => ctx.home.clone().map(|v| (v, "HOME".to_string())),
-                        "PROJECT_ROOT" | "CWD" => ctx
-                            .project_root
-                            .clone()
-                            .map(|v| (v, "PROJECT_ROOT".to_string())),
-                        other => None.or_else(|| {
-                            // 兼容 ${VAR} 直接写变量名的形式
-                            if other.is_empty() {
-                                None
-                            } else {
-                                ctx.lookup(other).map(|v| (v, other.to_string()))
-                            }
-                        }),
-                    },
-                };
+                // 1. 编译期路径宏（非环境变量）
+                if matches!(token, "HOME" | "HOME_DIR" | "PROJECT_ROOT" | "CWD") {
+                    let path_val = match token {
+                        "HOME" | "HOME_DIR" => ctx.home.as_deref(),
+                        _ => ctx.project_root.as_deref(),
+                    };
+                    match path_val {
+                        Some(v) => out.push_str(v),
+                        None => {
+                            out.push_str(raw);
+                            missing.push(MissingVar {
+                                raw: raw.to_string(),
+                                name: token.to_string(),
+                            });
+                        }
+                    }
+                    i = end + 1;
+                    continue;
+                }
 
-                match resolved {
-                    Some((value, _name)) => out.push_str(&value),
-                    None => {
+                // 2. 运行期环境变量引用（${ENV:VAR} / ${env:VAR} / ${VAR}）
+                let env_var = token
+                    .strip_prefix("ENV:")
+                    .or_else(|| token.strip_prefix("env:"))
+                    .unwrap_or(token)
+                    .trim();
+
+                if env_var.is_empty() {
+                    out.push_str(raw);
+                    missing.push(MissingVar {
+                        raw: raw.to_string(),
+                        name: String::new(),
+                    });
+                    i = end + 1;
+                    continue;
+                }
+
+                if inline_env {
+                    match ctx.lookup(env_var) {
+                        Some(value) => out.push_str(&value),
+                        None => {
+                            if let Some((prefix, suffix)) = env_dialect {
+                                out.push_str(prefix);
+                                out.push_str(env_var);
+                                out.push_str(suffix);
+                            } else {
+                                out.push_str(raw);
+                            }
+                            missing.push(MissingVar {
+                                raw: raw.to_string(),
+                                name: env_var.to_string(),
+                            });
+                        }
+                    }
+                } else {
+                    // Scope::Project：禁止把宿主进程环境变量明文落入受版本控制的项目文件
+                    if let Some((prefix, suffix)) = env_dialect {
+                        out.push_str(prefix);
+                        out.push_str(env_var);
+                        out.push_str(suffix);
+                    } else {
                         out.push_str(raw);
-                        let name = token
-                            .strip_prefix("ENV:")
-                            .unwrap_or(token)
-                            .trim()
-                            .to_string();
-                        missing.push(MissingVar {
-                            raw: raw.to_string(),
-                            name,
-                        });
+                        if ctx.lookup(env_var).is_none() {
+                            missing.push(MissingVar {
+                                raw: raw.to_string(),
+                                name: env_var.to_string(),
+                            });
+                        }
                     }
                 }
 

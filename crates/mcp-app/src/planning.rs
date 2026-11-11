@@ -1,6 +1,6 @@
 use crate::AppError;
 use mcp_core::{
-    adapters, diff,
+    diff,
     document::ConfigDoc,
     plan::{FilePlan, MergeMode},
 };
@@ -48,9 +48,7 @@ pub fn coalesce(plans: Vec<FilePlan>) -> Result<Vec<FilePlan>, AppError> {
         let mut changes = BTreeMap::new();
         let mut conflict = false;
         for plan in &group {
-            let adapter = adapters::by_id(&plan.client_id)
-                .ok_or_else(|| AppError::UnknownClient(plan.client_id.clone()))?;
-            let root = adapter.root_key_for_path(plan.scope, Path::new(&plan.path));
+            let root = &plan.root_key;
             for change in &plan.changes {
                 let key = (root.clone(), change.name.clone());
                 if let Some(previous) = changes.get(&key) {

@@ -5,3 +5,7 @@ dist/
 .DS_Store
 .workbuddy/
 .cargo/config.toml
+.agent_context.md
+__pycache__/
+apps/web/src-tauri/gen/
+apps/web/test-artifacts/

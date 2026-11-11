@@ -82,7 +82,7 @@ export function LibraryPage({ entries, matrix, clients, scope, selected, focus, 
             <div className="inspector-meta"><span>{entry.transport === "stdio" ? "本地命令" : "远程服务"}</span><span>{scopeLabel(entry)}</span></div>
             <button className="btn edit-entry" onClick={() => onEdit(entry)} disabled={blocked}><Icon name="edit" size={16} />编辑配置</button>
             <div className="inspector-section"><h3>这次要应用到</h3><p className="field-hint">每个 MCP 的目标独立保存，未勾选的条目不会写入。</p>
-              {scopeReason(entry, scope) && <div className="scope-explanation"><p>{scopeReason(entry, scope)}</p>{entry.scope !== "local" && <button className="text-button" onClick={() => onScopeChange(entry.scope as Scope)}>切换到{entry.scope === "project" ? "项目" : "全局"}配置</button>}</div>}
+              {scopeReason(entry, scope) && <div className="scope-explanation"><p>{scopeReason(entry, scope)}</p><button className="text-button" onClick={() => onScopeChange(entry.scope as Scope)}>切换到{entry.scope === "project" ? "项目" : entry.scope === "local" ? "本地" : "全局"}配置</button></div>}
               {visibleClients.map((client) => target(client, entry))}
               {!!otherClients.length && <details className="other-agents"><summary>其他 Agent（{otherClients.length}）</summary><p className="field-hint">未在本机检测到，仍可提前配置。</p><div className="other-agent-list">{otherClients.map((client) => target(client, entry))}</div></details>}
               {!clients && <p className="field-hint">选择有效工作范围后，即可读取 Agent 状态。</p>}

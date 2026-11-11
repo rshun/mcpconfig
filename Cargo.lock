@@ -1834,7 +1834,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-app"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "mcp-core",
  "mcp-io",
@@ -1845,7 +1845,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-cli"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "clap",
  "mcp-app",
@@ -1856,7 +1856,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1867,7 +1867,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-desktop"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "mcp-app",
  "mcp-core",
@@ -1880,7 +1880,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-io"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "mcp-core",
  "serde",

@@ -149,6 +149,7 @@ export interface BackupDto {
 
 export interface CatalogDto {
   exists?: boolean;
+  revisionId?: string;
   catalog: any;
   issues: string[];
   entryCount: number;

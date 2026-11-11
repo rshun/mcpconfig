@@ -12,10 +12,13 @@ interface Entry {
   cwd?: string;
   url?: string;
   headers?: Record<string, string>;
-  auth?: { type: "bearer"; token_env?: string; token?: string };
+  auth?:
+    | { type: "bearer"; token_env?: string; token?: string }
+    | { type: "header" | "api_key"; header: string; prefix?: string; value_env?: string; value?: string };
   scope?: "inherit" | Scope;
   tags?: string[];
   overrides?: unknown;
+  extensions?: Record<string, Record<string, unknown>>;
   enabled?: boolean;
   timeout_seconds?: number;
 }
@@ -244,7 +247,7 @@ export function CatalogPage({
                       <input
                         className="input"
                         placeholder="留空表示无需认证，例如 GITHUB_PAT"
-                        value={entry.auth?.token_env ?? ""}
+                        value={entry.auth?.type === "bearer" ? entry.auth.token_env ?? "" : ""}
                         onChange={(e) =>
                           patch({
                             auth: e.target.value
