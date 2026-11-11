@@ -308,7 +308,7 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
     }
     case "app_info":
       return {
-        version: "0.5.0",
+        version: "0.6.0",
         platform: "windows",
         home: "C:/Users/Chensh",
         projectRoot: "C:/Dev/mcpconfig",
