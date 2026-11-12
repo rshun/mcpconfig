@@ -14,7 +14,15 @@ interface Entry {
   headers?: Record<string, string>;
   auth?:
     | { type: "bearer"; token_env?: string; token?: string }
-    | { type: "header" | "api_key"; header: string; prefix?: string; value_env?: string; value?: string };
+    | {
+        type: "header" | "api_key";
+        header: string;
+        prefix?: string;
+        token_env?: string;
+        token?: string;
+        value_env?: string;
+        value?: string;
+      };
   scope?: "inherit" | Scope;
   tags?: string[];
   overrides?: unknown;

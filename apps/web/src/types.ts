@@ -16,6 +16,7 @@ export type McpSelection = Record<string, string[]>;
 export interface PlanInput {
   catalogPath: string;
   selection: McpSelection;
+  removals?: McpSelection;
   scope: Scope;
   mode: MergeMode;
   allowCommentStrip: boolean;
@@ -94,6 +95,7 @@ export interface MatrixDto {
   clients: ClientBriefDto[];
   rows: RowDto[];
   issues: string[];
+  envStatus?: Record<string, boolean>;
 }
 
 export interface FileDto {
@@ -106,6 +108,7 @@ export interface FileDto {
   blocked: string | null;
   newCount: number;
   updateCount: number;
+  removedCount?: number;
   unchangedCount: number;
   diff: string;
   warnings: string[];
@@ -161,4 +164,15 @@ export interface AppInfoDto {
   home: string;
   projectRoot: string;
   dataDir: string;
+}
+
+export interface ProbeDto {
+  ok: boolean;
+  kind: string;
+  summary: string;
+  serverName: string | null;
+  serverVersion: string | null;
+  tools: string[];
+  missingVars: string[];
+  durationMs: number;
 }

@@ -8,6 +8,7 @@ import type {
   MatrixDto,
   PlanInput,
   PlanDto,
+  ProbeDto,
   ReceiptDto,
   Scope,
   GuiSettings,
@@ -27,6 +28,17 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
     return invoke<T>(cmd, args);
   }
   return mockCall<T>(cmd, args);
+}
+
+function normalizePlanPayload(request: PlanInput): Record<string, unknown> {
+  const { removals, ...rest } = request;
+  if (removals) {
+    const cleaned = Object.fromEntries(Object.entries(removals).filter(([, list]) => list.length > 0));
+    if (Object.keys(cleaned).length > 0) {
+      return { ...rest, removals: cleaned };
+    }
+  }
+  return { ...rest };
 }
 
 export const api = {
@@ -56,14 +68,16 @@ export const api = {
       ...(revisionId ? { revisionId } : {}),
       ...(renames && Object.keys(renames).length ? { renames } : {}),
     }),
-  plan: (request: PlanInput) => call<PlanDto>("plan", { ...request }),
+  plan: (request: PlanInput) => call<PlanDto>("plan", normalizePlanPayload(request)),
   apply: (request: PlanInput, dryRun: boolean, previewId: string) =>
     call<ReceiptDto>("apply", {
-      ...request,
+      ...normalizePlanPayload(request),
       dryRun,
       previewId,
     }),
   cancelPlan: (previewId: string) => call<void>("cancel_plan", { previewId }),
+  probeEntry: (catalogPath: string, entry: unknown, scope: Scope, projectRoot: string | null = null) =>
+    call<ProbeDto>("probe_entry", { catalogPath, entry, scope, projectRoot }),
   backups: () => call<BackupDto[]>("backups"),
   restore: (id: string) => call<number>("restore", { id }),
 };

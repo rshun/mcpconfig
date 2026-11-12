@@ -33,6 +33,7 @@ pub enum MergeMode {
 pub enum ChangeKind {
     New,
     Update,
+    Removed,
     Unchanged,
 }
 
@@ -41,6 +42,7 @@ impl ChangeKind {
         match self {
             ChangeKind::New => "新增",
             ChangeKind::Update => "修改",
+            ChangeKind::Removed => "移除",
             ChangeKind::Unchanged => "无变化",
         }
     }

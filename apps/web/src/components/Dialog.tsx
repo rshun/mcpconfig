@@ -8,10 +8,18 @@ export function Dialog({ title, children, onClose, busy = false, wide = false }:
   const id = useId();
   useEffect(() => {
     const dialog = ref.current!;
-    if (!dialog.open) dialog.showModal();
+    if (!dialog.open) {
+      dialog.showModal();
+      const explicitTarget = dialog.querySelector<HTMLElement>("[autofocus]");
+      if (explicitTarget) {
+        explicitTarget.focus();
+      } else {
+        dialog.focus();
+      }
+    }
     return () => { if (dialog.open) dialog.close(); };
   }, []);
-  return <dialog ref={ref} className={`dialog${wide ? " dialog-wide" : ""}`} aria-labelledby={id}
+  return <dialog ref={ref} tabIndex={-1} className={`dialog${wide ? " dialog-wide" : ""}`} aria-labelledby={id}
     onKeyDown={(event) => {
       if (event.key !== "Escape") return;
       // 在浏览器执行原生关闭前先经过草稿/写入保护；cancel 仍处理其他原生关闭请求。

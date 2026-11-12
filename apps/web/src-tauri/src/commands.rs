@@ -3,7 +3,8 @@
 //! 这里不写业务逻辑；换宿主（Electron / Web）只需重写这一层。
 
 use crate::dto::{
-    AppInfoDto, BackupDto, CatalogDto, ClientDto, ExistingConfigDto, MatrixDto, PlanDto, ReceiptDto,
+    AppInfoDto, BackupDto, CatalogDto, ClientDto, ExistingConfigDto, MatrixDto, PlanDto, ProbeDto,
+    ReceiptDto,
 };
 use mcp_app::catalog_session::CatalogSessions;
 use mcp_app::distribution::DistributionSessions;
@@ -302,9 +303,11 @@ pub fn save_catalog(
 
 /// 预演：计算逐文件变化（不写盘）。
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn plan(
     catalog_path: String,
     selection: BTreeMap<String, Vec<String>>,
+    removals: Option<BTreeMap<String, Vec<String>>>,
     scope: String,
     mode: String,
     allow_comment_strip: bool,
@@ -321,6 +324,7 @@ pub fn plan(
     req.mode = parse_mode(&mode)?;
     req.allow_comment_strip = allow_comment_strip;
     req.selection = Some(selection);
+    req.removals = removals.filter(|r| r.values().any(|v| !v.is_empty()));
 
     let (preview_id, out) = previews.preview(&a, &req).map_err(err)?;
     Ok(PlanDto::from((preview_id, out)))
@@ -328,9 +332,11 @@ pub fn plan(
 
 /// 确认：校验一次性预览，再写入后端保留的原始计划。不接受无预览 ID 的写入。
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn apply(
     catalog_path: String,
     selection: BTreeMap<String, Vec<String>>,
+    removals: Option<BTreeMap<String, Vec<String>>>,
     scope: String,
     mode: String,
     allow_comment_strip: bool,
@@ -349,6 +355,7 @@ pub fn apply(
         req.mode = parse_mode(&mode)?;
         req.allow_comment_strip = allow_comment_strip;
         req.selection = Some(selection);
+        req.removals = removals.filter(|r| r.values().any(|v| !v.is_empty()));
         previews
             .commit(&a, &req, &preview_id, dry_run)
             .map(ReceiptDto::from)
@@ -359,6 +366,30 @@ pub fn apply(
         previews.cancel(&preview_id);
     }
     result
+}
+
+/// 按需握手探测单个 MCP 条目（异步阻塞线程池执行，避免阻塞 UI 线程）。
+#[tauri::command]
+pub async fn probe_entry(
+    catalog_path: String,
+    entry: serde_json::Value,
+    scope: String,
+    project_root: Option<String>,
+    catalogs: Catalogs<'_>,
+) -> Result<ProbeDto, String> {
+    let parsed_scope = parse_scope(&scope)?;
+    let a = context(parsed_scope, project_root)?;
+    let hydrated = {
+        let sessions = catalogs
+            .lock()
+            .map_err(|_| "配置库会话状态不可用，请重启软件".to_string())?;
+        sessions
+            .rehydrate_for_probe(std::path::Path::new(&catalog_path), entry)
+            .map_err(err)?
+    };
+    tauri::async_runtime::spawn_blocking(move || ProbeDto::from(a.probe_entry(&hydrated)))
+        .await
+        .map_err(|_| "连接测试任务执行异常".to_string())
 }
 
 #[tauri::command]

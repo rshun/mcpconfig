@@ -53,7 +53,13 @@ pub fn coalesce(plans: Vec<FilePlan>) -> Result<Vec<FilePlan>, AppError> {
                 let key = (root.clone(), change.name.clone());
                 if let Some(previous) = changes.get(&key) {
                     let previous: &mcp_core::plan::EntryChange = previous;
-                    if previous.after != change.after {
+                    if previous.kind == mcp_core::document::ChangeKind::Unchanged {
+                        changes.insert(key, change.clone());
+                    } else if change.kind != mcp_core::document::ChangeKind::Unchanged
+                        && ((previous.kind == mcp_core::document::ChangeKind::Removed)
+                            != (change.kind == mcp_core::document::ChangeKind::Removed)
+                            || previous.after != change.after)
+                    {
                         conflict = true;
                     }
                 } else {
@@ -66,7 +72,16 @@ pub fn coalesce(plans: Vec<FilePlan>) -> Result<Vec<FilePlan>, AppError> {
                 Some("多个 Agent 对共享文件的同名 MCP 要求不同内容；请调整选择后重试".into());
         } else {
             for ((root, name), change) in &changes {
-                doc.upsert(root, name, &change.after, MergeMode::Replace)?;
+                match change.kind {
+                    mcp_core::document::ChangeKind::Removed => {
+                        doc.remove(root, name)?;
+                    }
+                    mcp_core::document::ChangeKind::New
+                    | mcp_core::document::ChangeKind::Update => {
+                        doc.upsert(root, name, &change.after, MergeMode::Replace)?;
+                    }
+                    mcp_core::document::ChangeKind::Unchanged => {}
+                }
             }
             merged.new_content = doc.render();
             merged.changes = changes.into_values().collect();

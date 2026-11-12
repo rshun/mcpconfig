@@ -246,9 +246,21 @@ impl Engine {
         state.version = 1;
         for plan in written_plans {
             let key = managed_container_key(Path::new(&plan.path), &plan.root_key)?;
-            let container = state.containers.entry(key).or_default();
+            let container = state.containers.entry(key.clone()).or_default();
             for change in &plan.changes {
-                container.insert(change.name.clone(), change.managed_keys.clone());
+                match change.kind {
+                    mcp_core::document::ChangeKind::New
+                    | mcp_core::document::ChangeKind::Update => {
+                        container.insert(change.name.clone(), change.managed_keys.clone());
+                    }
+                    mcp_core::document::ChangeKind::Removed => {
+                        container.remove(&change.name);
+                    }
+                    mcp_core::document::ChangeKind::Unchanged => {}
+                }
+            }
+            if container.is_empty() {
+                state.containers.remove(&key);
             }
         }
         let serialized = serde_json::to_string_pretty(&state).map_err(io_err)?;

@@ -67,17 +67,31 @@ impl Context {
 type Resolutions = BTreeMap<String, Option<(PathBuf, String)>>;
 fn resolutions(app: &App, req: &PlanRequest) -> Result<Resolutions, AppError> {
     let adapter_set = app.adapter_set()?;
-    let clients = req.clients.clone().unwrap_or_else(|| match &req.selection {
-        Some(selection) => selection.keys().cloned().collect(),
-        None => adapter_set.ids(),
+    let clients = req.clients.clone().unwrap_or_else(|| {
+        if req.selection.is_some() || req.removals.is_some() {
+            let mut ids = std::collections::BTreeSet::new();
+            if let Some(selection) = &req.selection {
+                ids.extend(selection.keys().cloned());
+            }
+            if let Some(removals) = &req.removals {
+                ids.extend(removals.keys().cloned());
+            }
+            ids.into_iter().collect()
+        } else {
+            adapter_set.ids()
+        }
     });
     let mut result = BTreeMap::new();
     for id in clients {
-        if req
-            .selection
+        let has_sel = match &req.selection {
+            Some(selection) => selection.get(&id).is_some_and(|v| !v.is_empty()),
+            None => req.removals.is_none(),
+        };
+        let has_rem = req
+            .removals
             .as_ref()
-            .is_some_and(|selection| selection.get(&id).is_none_or(Vec::is_empty))
-        {
+            .is_some_and(|removals| removals.get(&id).is_some_and(|v| !v.is_empty()));
+        if !has_sel && !has_rem {
             continue;
         }
         let adapter = adapter_set.by_id(&id).ok_or_else(|| stale("分发目标无效"))?;
@@ -152,11 +166,11 @@ impl DistributionSessions {
         }
         let created = Instant::now();
         let source = FileSnapshot::capture(&request.catalog_path)?;
-        let text = source
-            .text
-            .as_deref()
-            .ok_or_else(|| stale("配置库不存在"))?;
-        let (catalog, issues) = catalog::load(text)?;
+        let (catalog, issues) = match source.text.as_deref() {
+            Some(text) => catalog::load(text)?,
+            None if request.is_removal_only() => (mcp_core::Catalog::default(), Vec::new()),
+            None => return Err(stale("配置库不存在")),
+        };
         let context = Context::capture(app)?;
         let paths = resolutions(app, request)?;
         let mut targets = BTreeMap::new();
@@ -215,12 +229,11 @@ impl DistributionSessions {
         // 校验失败、演练或写入失败也消费令牌，不能重试同一个预览。
         let prepared = self.active.take().expect("matched active preview");
         prepared.verify(app, request)?;
-        let text = prepared
-            .catalog
-            .text
-            .as_deref()
-            .ok_or_else(|| stale("配置库不存在"))?;
-        let (catalog, issues) = catalog::load(text).map_err(|_| stale("配置库不可解析"))?;
+        let (catalog, issues) = match prepared.catalog.text.as_deref() {
+            Some(text) => catalog::load(text).map_err(|_| stale("配置库不可解析"))?,
+            None if request.is_removal_only() => (mcp_core::Catalog::default(), Vec::new()),
+            None => return Err(stale("配置库不存在")),
+        };
         let current = app
             .plan_catalog(
                 request,

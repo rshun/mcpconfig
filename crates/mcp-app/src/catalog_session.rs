@@ -197,6 +197,23 @@ impl CatalogSessions {
             warnings,
         })
     }
+
+    /// 仅供后端内部按需探测（`probe_entry`）使用：将前端传入的单条目 `[已隐藏]` 占位符还原为内存中的原始凭据，绝不向外返回。
+    pub fn rehydrate_for_probe(
+        &self,
+        path: &Path,
+        mut entry_val: Value,
+    ) -> Result<mcp_core::McpEntry, AppError> {
+        let key = path_key(path);
+        let orig_raw = entry_val
+            .as_object()
+            .and_then(|o| o.get("name"))
+            .and_then(Value::as_str)
+            .and_then(|name| self.snapshots.get(&key)?.raw_entries.get(name));
+        rehydrate_entry(&mut entry_val, orig_raw)?;
+        serde_json::from_value(entry_val)
+            .map_err(|e| AppError::Other(format!("MCP 条目格式无效：{e}")))
+    }
 }
 
 fn rehydrate_entry(incoming: &mut Value, orig_raw: Option<&Value>) -> Result<(), AppError> {

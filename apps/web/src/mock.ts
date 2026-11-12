@@ -17,8 +17,15 @@ let catalogRevisionSerial = 1;
 let distributionPreview: { id: string; request: string; source: string; settings: string; created: number; plan: Omit<PlanDto, "previewId"> } | null = null;
 
 function distributionRequest(args: Record<string, unknown> | undefined) {
-  return JSON.stringify({ catalogPath: args?.catalogPath ?? settings.catalogPath, selection: args?.selection, scope: args?.scope ?? "user",
-    projectRoot: args?.scope !== "user" ? args?.projectRoot ?? null : null, mode: args?.mode ?? "merge", allowCommentStrip: args?.allowCommentStrip ?? false });
+  return JSON.stringify({
+    catalogPath: args?.catalogPath ?? settings.catalogPath,
+    selection: args?.selection,
+    removals: args?.removals ?? null,
+    scope: args?.scope ?? "user",
+    projectRoot: args?.scope !== "user" ? args?.projectRoot ?? null : null,
+    mode: args?.mode ?? "merge",
+    allowCommentStrip: args?.allowCommentStrip ?? false,
+  });
 }
 
 const params =
@@ -77,13 +84,18 @@ const CLIENTS = [
 
 interface MockEntry {
   name: string;
-  transport: "stdio" | "http";
+  transport: "stdio" | "http" | "sse";
   scope: "inherit" | "user" | "project" | "local";
   command?: string;
   args?: string[];
   url?: string;
   tokenEnv?: string;
+  auth?: any;
   env?: Record<string, string>;
+  headers?: Record<string, string>;
+  enabled?: boolean;
+  timeout_seconds?: number;
+  tags?: string[];
   desc: string;
 }
 
@@ -215,22 +227,31 @@ const BACKUPS = [
 
 function selectedPlan(args: Record<string, unknown> | undefined, scope: Scope): Omit<PlanDto, "previewId"> {
   const selection = args?.selection as McpSelection | undefined;
+  const removals = (args?.removals as McpSelection | undefined) ?? {};
   if (!selection) throw new Error("必须提供 MCP 选择");
-  const scopedEntries = ENTRIES.filter((e) => effScope(e, scope) === scope);
+  const scopedEntries = ENTRIES.filter((e) => e.enabled !== false && effScope(e, scope) === scope);
   const files: PlanDto["files"] = [];
   const skipped: PlanDto["skipped"] = [];
-  for (const [id, names] of Object.entries(selection)) {
+  const clientIds = [...new Set([...Object.keys(selection), ...Object.keys(removals)])];
+  for (const id of clientIds) {
+    const names = selection[id] ?? [];
+    const remNames = removals[id] ?? [];
     const client = CLIENTS.find(([cid]) => cid === id);
     if (!client) throw new Error(`未知客户端：${id}`);
     if (names.some((name) => !scopedEntries.some((e) => e.name === name))) {
       throw new Error("选择包含不存在或不属于当前作用域的 MCP");
     }
-    if (names.length === 0) continue;
+    if (names.length === 0 && remNames.length === 0) continue;
     if (!STYLES[id].scopes.includes(scope)) {
       skipped.push({ clientId: id, reason: `${client[1]} 不支持此作用域` });
       continue;
     }
     const entries = scopedEntries.filter((e) => names.includes(e.name));
+    const diffParts: string[] = [];
+    if (entries.length > 0) diffParts.push(entries.map((e) => snippet(id, e)).join("\n"));
+    if (remNames.length > 0) {
+      diffParts.push(remNames.map((n) => `-"${n}": {\n-  "removed": true\n-}`).join("\n"));
+    }
     files.push({
       clientId: id,
       clientName: client[1],
@@ -241,8 +262,9 @@ function selectedPlan(args: Record<string, unknown> | undefined, scope: Scope): 
       blocked: null,
       newCount: entries.length,
       updateCount: 0,
+      removedCount: remNames.length,
       unchangedCount: 0,
-      diff: entries.map((e) => snippet(id, e)).join("\n"),
+      diff: diffParts.join("\n"),
       warnings: [],
       willWrite: true,
     });
@@ -308,7 +330,7 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
     }
     case "app_info":
       return {
-        version: "0.6.0",
+        version: "0.7.0",
         platform: "windows",
         home: "C:/Users/Chensh",
         projectRoot: "C:/Dev/mcpconfig",
@@ -353,7 +375,7 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
     }
 
     case "matrix": {
-      const rows = ENTRIES.filter((e) => effScope(e, scope) === scope).map((e) => ({
+      const rows = ENTRIES.filter((e) => e.enabled !== false && effScope(e, scope) === scope).map((e) => ({
         name: e.name,
         transport: e.transport,
         scope: effScope(e, scope),
@@ -380,6 +402,10 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
         clients: CLIENTS.map(([id, name, kind]) => ({ id, name, kind })),
         rows,
         issues: [],
+        envStatus: {
+          GITHUB_PAT: true,
+          CONTEXT7_API_KEY: false,
+        },
       } as T;
     }
 
@@ -402,7 +428,11 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
                 }
               : {}),
             description: desc,
-            ...(tokenEnv ? { auth: { type: "bearer", token_env: tokenEnv } } : {}),
+            ...(entry.auth
+              ? { auth: entry.auth }
+              : tokenEnv
+                ? { auth: { type: "bearer", token_env: tokenEnv } }
+                : {}),
           })),
         },
         issues: [],
@@ -451,6 +481,16 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
       if (Date.now() - prepared.created >= 600000 || prepared.request !== distributionRequest(args) || prepared.source !== JSON.stringify(ENTRIES) || prepared.settings !== JSON.stringify(settings)) throw new Error("配置或上下文已变化，本次未写入，请重新预览");
       const plan = prepared.plan;
       const dryRun = args?.dryRun === true;
+      if (!dryRun) {
+        const sel = (args?.selection as McpSelection | undefined) ?? {};
+        const rem = (args?.removals as McpSelection | undefined) ?? {};
+        for (const [cid, names] of Object.entries(sel)) {
+          for (const n of names) PRE[`${n}::${cid}`] = "ok";
+        }
+        for (const [cid, names] of Object.entries(rem)) {
+          for (const n of names) delete PRE[`${n}::${cid}`];
+        }
+      }
       return {
         written: dryRun ? 0 : plan.writable,
         blocked: 0,
@@ -463,6 +503,34 @@ export async function mockCall<T>(cmd: string, args?: Record<string, unknown>): 
           label: dryRun ? "演练" : "已写入",
           message: null,
         })),
+      } as T;
+    }
+
+    case "probe_entry": {
+      const entry = (args?.entry ?? {}) as Record<string, any>;
+      const transport = String(entry.transport ?? "stdio");
+      if (transport !== "stdio") {
+        const ok = typeof entry.url === "string" && /^https?:\/\//i.test(entry.url);
+        return {
+          ok,
+          kind: transport,
+          summary: ok ? "远程地址与认证环境变量已就绪（连接由目标 Agent 运行时建立）" : "未填写有效的远程服务 URL",
+          serverName: null,
+          serverVersion: null,
+          tools: [],
+          missingVars: [],
+          durationMs: 6,
+        } as T;
+      }
+      return {
+        ok: true,
+        kind: "stdio",
+        summary: `MCP 握手成功 · ${entry.name || "server"} v1.0.0 · 发现 3 个工具（42 ms）`,
+        serverName: String(entry.name || "server"),
+        serverVersion: "1.0.0",
+        tools: ["query", "list_resources", "describe_schema"],
+        missingVars: [],
+        durationMs: 42,
       } as T;
     }
 
