@@ -4,10 +4,12 @@
 
 use mcp_app::detect::{ClientStatus, DetectState};
 use mcp_app::inspect::ExistingConfig;
+use mcp_app::probe::ProbeReport;
 use mcp_app::{CellState, MatrixView, PlanOutcome};
 use mcp_core::plan::{ChangeKind, FilePlan};
 use mcp_io::{ApplyReceipt, OutcomeStatus};
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -125,6 +127,7 @@ pub struct MatrixDto {
     pub clients: Vec<ClientBriefDto>,
     pub rows: Vec<RowDto>,
     pub issues: Vec<String>,
+    pub env_status: BTreeMap<String, bool>,
 }
 
 impl From<MatrixView> for MatrixDto {
@@ -164,6 +167,7 @@ impl From<MatrixView> for MatrixDto {
             clients,
             rows,
             issues: m.issues,
+            env_status: m.env_status,
         }
     }
 }
@@ -189,6 +193,7 @@ pub struct FileDto {
     pub blocked: Option<String>,
     pub new_count: usize,
     pub update_count: usize,
+    pub removed_count: usize,
     pub unchanged_count: usize,
     pub diff: String,
     pub warnings: Vec<String>,
@@ -198,6 +203,7 @@ pub struct FileDto {
 impl From<FilePlan> for FileDto {
     fn from(p: FilePlan) -> Self {
         let (new_count, update_count) = p.changed_count();
+        let removed_count = p.removed_count();
         let diff = p.diff_text();
         let will_write = p.has_write();
         let unchanged_count = p
@@ -215,6 +221,7 @@ impl From<FilePlan> for FileDto {
             blocked: p.blocked,
             new_count,
             update_count,
+            removed_count,
             unchanged_count,
             diff,
             warnings: p.warnings,
@@ -392,4 +399,32 @@ pub struct AppInfoDto {
     pub home: String,
     pub project_root: String,
     pub data_dir: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProbeDto {
+    pub ok: bool,
+    pub kind: String,
+    pub summary: String,
+    pub server_name: Option<String>,
+    pub server_version: Option<String>,
+    pub tools: Vec<String>,
+    pub missing_vars: Vec<String>,
+    pub duration_ms: u64,
+}
+
+impl From<ProbeReport> for ProbeDto {
+    fn from(r: ProbeReport) -> Self {
+        Self {
+            ok: r.ok,
+            kind: r.kind,
+            summary: r.summary,
+            server_name: r.server_name,
+            server_version: r.server_version,
+            tools: r.tools,
+            missing_vars: r.missing_vars,
+            duration_ms: r.duration_ms,
+        }
+    }
 }

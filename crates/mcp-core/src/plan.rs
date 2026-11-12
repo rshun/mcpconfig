@@ -46,11 +46,12 @@ pub struct FilePlan {
     pub warnings: Vec<String>,
 }
 
-/// 单文件规划高级选项（支持动态容器根键与三方合并键骨架基线）。
+/// 单文件规划高级选项（支持动态容器根键、三方合并键骨架基线与指定条目移除）。
 #[derive(Debug, Clone, Default)]
 pub struct PlanFileOptions<'a> {
     pub root_key_override: Option<&'a [String]>,
     pub managed_entries: Option<&'a BTreeMap<String, ManagedKeys>>,
+    pub removals: &'a [String],
 }
 
 impl FilePlan {
@@ -75,6 +76,13 @@ impl FilePlan {
         (new, upd)
     }
 
+    pub fn removed_count(&self) -> usize {
+        self.changes
+            .iter()
+            .filter(|c| c.kind == ChangeKind::Removed)
+            .count()
+    }
+
     /// unified diff 文本（无改动时为空串）。
     pub fn diff_text(&self) -> String {
         let (old, new) = self.display_texts();
@@ -90,6 +98,13 @@ impl FilePlan {
             .iter()
             .filter(|c| c.kind != ChangeKind::Unchanged)
         {
+            if change.kind == ChangeKind::Removed {
+                if let Some(before) = &change.before {
+                    let safe_before = crate::redact::config_entry(before);
+                    old.push(serde_json::json!({ "name": change.name, "config": safe_before }));
+                }
+                continue;
+            }
             let (before, after) = crate::redact::change(change.before.as_ref(), &change.after);
             if let Some(before) = before {
                 old.push(serde_json::json!({ "name": change.name, "config": before }));
@@ -201,6 +216,29 @@ pub fn plan_file_with_options(
             before,
             after,
             managed_keys: ManagedKeys::from_value(&encoded.value),
+        });
+    }
+
+    for rem_name in opts.removals {
+        if entries.iter().any(|e| &e.name == rem_name) {
+            continue;
+        }
+        let before = doc.get(&root, rem_name);
+        let removed = if before.is_some() {
+            doc.remove(&root, rem_name)?
+        } else {
+            false
+        };
+        plan.changes.push(EntryChange {
+            name: rem_name.clone(),
+            kind: if removed {
+                ChangeKind::Removed
+            } else {
+                ChangeKind::Unchanged
+            },
+            before,
+            after: Value::Null,
+            managed_keys: ManagedKeys::default(),
         });
     }
 

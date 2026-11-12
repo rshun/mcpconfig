@@ -681,3 +681,164 @@ adapters:
 
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn ux_lifecycle_surgical_removal_env_readiness_and_probe_entry() {
+    struct EnvGuard(String);
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            std::env::remove_var(&self.0);
+        }
+    }
+
+    let (dir, app) = sandbox("ux-lifecycle");
+    let ready_var = format!("MCPHUB_UX_READY_{}", std::process::id());
+    let missing_var = format!("MCPHUB_UX_MISSING_{}", std::process::id());
+    let _guard = EnvGuard(ready_var.clone());
+    std::env::set_var(&ready_var, "your_secret_value_never_exposed");
+    std::env::remove_var(&missing_var);
+
+    // 1. 预先写入带注释的 JSONC (opencode) 与已有条目的 JSON (claude-code)，含敏感字段
+    let opencode_path = app
+        .target_path(
+            mcp_core::adapters::by_id("opencode").unwrap(),
+            Scope::User,
+        )
+        .unwrap();
+    write_file(
+        &opencode_path,
+        r#"{
+  // 保留顶层注释
+  "mcp": {
+    "servers": {
+      "obsolete": {
+        "type": "local",
+        "command": ["npx", "old-mcp"],
+        "environment": {
+          "API_TOKEN": "your_real_secret_token"
+        }
+      },
+      "keep-me": {
+        "type": "local",
+        "command": ["npx", "keep-mcp"]
+      }
+    }
+  }
+}"#,
+    );
+
+    // 即使 catalog.yaml 尚不存在，纯移除请求也能规划、脱敏展示红字 Diff 并安全落盘备份
+    let missing_cat = dir.join("not-created-yet.yaml");
+    let mut rem_only = PlanRequest::new(&missing_cat);
+    rem_only.scope = Scope::User;
+    rem_only.selection = Some(BTreeMap::new());
+    rem_only.removals = Some(BTreeMap::from([(
+        "opencode".to_string(),
+        vec!["obsolete".to_string()],
+    )]));
+
+    let rem_plan = app.plan(&rem_only).unwrap();
+    assert_eq!(rem_plan.writable(), 1);
+    assert_eq!(rem_plan.plans[0].removed_count(), 1);
+    let diff_text = rem_plan.plans[0].diff_text();
+    assert!(
+        diff_text
+            .lines()
+            .any(|l| l.starts_with('-') && l.contains("\"obsolete\"")),
+        "移除预览必须展示被删除条目的负向 Diff：{diff_text}"
+    );
+    assert!(
+        !diff_text.contains("your_real_secret_token"),
+        "移除预览严禁泄露原文件中的真实密钥"
+    );
+
+    let receipt = app.apply(&rem_plan.plans, false).unwrap();
+    assert_eq!(receipt.written(), 1);
+    assert!(receipt.backup_id.is_some());
+
+    let after_opencode = fs::read_to_string(&opencode_path).unwrap();
+    assert!(
+        after_opencode.contains("// 保留顶层注释"),
+        "JSONC 移除条目后必须保留外层注释"
+    );
+    assert!(!after_opencode.contains("\"obsolete\""));
+    assert!(after_opencode.contains("\"keep-me\""));
+
+    // 2. 验证写入后再移除时 managed-state.json 同步清理，以及 MatrixView.env_status 布尔就绪态
+    let cat_path = dir.join("catalog.yaml");
+    write_file(
+        &cat_path,
+        &format!(
+            r#"version: 1
+entries:
+  - name: demo-srv
+    transport: http
+    url: https://example.invalid/mcp
+    auth:
+      type: bearer
+      token_env: {ready_var}
+    headers:
+      X-Trace: "${{ENV:{missing_var}}}"
+"#
+        ),
+    );
+
+    let mat = app.matrix(&cat_path, Scope::User).unwrap();
+    assert_eq!(mat.env_status.get(&ready_var), Some(&true));
+    assert_eq!(mat.env_status.get(&missing_var), Some(&false));
+
+    let mut write_req = PlanRequest::new(&cat_path);
+    write_req.scope = Scope::User;
+    write_req.selection = Some(BTreeMap::from([(
+        "claude-code".to_string(),
+        vec!["demo-srv".to_string()],
+    )]));
+    let p_write = app.plan(&write_req).unwrap();
+    app.apply(&p_write.plans, false).unwrap();
+    let state_before = fs::read_to_string(app.engine.managed_state_path()).unwrap();
+    assert!(state_before.contains("demo-srv"));
+
+    let mut clean_req = PlanRequest::new(&cat_path);
+    clean_req.scope = Scope::User;
+    clean_req.selection = Some(BTreeMap::new());
+    clean_req.removals = Some(BTreeMap::from([(
+        "claude-code".to_string(),
+        vec!["demo-srv".to_string()],
+    )]));
+    let p_clean = app.plan(&clean_req).unwrap();
+    app.apply(&p_clean.plans, false).unwrap();
+    let state_after = fs::read_to_string(app.engine.managed_state_path()).unwrap();
+    assert!(
+        !state_after.contains("demo-srv"),
+        "移除条目后必须从 managed-state.json 中清理托管键骨架"
+    );
+
+    // 3. 验证 probe_entry：远程条目校验变量就绪态，不存在命令的本地条目快速返回可读诊断且绝不泄露密钥
+    let (loaded_cat, _) = app.load_catalog(&cat_path).unwrap();
+    let probe_remote = app.probe_entry(&loaded_cat.entries[0]);
+    assert!(!probe_remote.ok, "缺失环境变量时远程校验应提示未就绪");
+    assert!(probe_remote.missing_vars.contains(&missing_var));
+    assert!(!probe_remote
+        .summary
+        .contains("your_secret_value_never_exposed"));
+
+    let missing_bin_entry: mcp_core::McpEntry = serde_json::from_value(json!({
+        "name": "bad-bin",
+        "transport": "stdio",
+        "command": "definitely_nonexistent_mcp_binary_xyz_999",
+        "env": { "SECRET": "your_secret_value_never_exposed" }
+    }))
+    .unwrap();
+    let probe_bad = app.probe_entry(&missing_bin_entry);
+    assert!(!probe_bad.ok);
+    assert!(
+        probe_bad.summary.contains("未找到可执行命令"),
+        "unexpected summary: {}",
+        probe_bad.summary
+    );
+    assert!(!probe_bad
+        .summary
+        .contains("your_secret_value_never_exposed"));
+
+    let _ = fs::remove_dir_all(&dir);
+}

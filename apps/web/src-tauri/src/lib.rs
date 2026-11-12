@@ -37,6 +37,7 @@ pub fn run() {
             commands::plan,
             commands::apply,
             commands::cancel_plan,
+            commands::probe_entry,
             commands::backups,
             commands::restore,
         ])

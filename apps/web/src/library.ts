@@ -11,9 +11,17 @@ export function scopeLabel(entry: Entry): string {
 }
 export function variableNames(entry: Entry): string[] {
   const names = new Set<string>();
-  for (const match of JSON.stringify(entry).matchAll(/\$\{(?:ENV:)?([A-Za-z_][A-Za-z0-9_]*)\}/g)) names.add(match[1]);
-  if (entry.auth?.type === "bearer" && entry.auth.token_env && /^[A-Za-z_][A-Za-z0-9_]*$/.test(entry.auth.token_env)) names.add(entry.auth.token_env);
-  if (entry.auth && entry.auth.type !== "bearer" && entry.auth.value_env && /^[A-Za-z_][A-Za-z0-9_]*$/.test(entry.auth.value_env)) names.add(entry.auth.value_env);
+  const builtins = new Set(["HOME", "HOME_DIR", "PROJECT_ROOT", "CWD"]);
+  for (const match of JSON.stringify(entry).matchAll(/\$\{(?:ENV:|env:)?([A-Za-z_][A-Za-z0-9_]*)\}/g)) {
+    if (!builtins.has(match[1])) names.add(match[1]);
+  }
+  if (entry.auth?.type === "bearer" && entry.auth.token_env && /^[A-Za-z_][A-Za-z0-9_]*$/.test(entry.auth.token_env)) {
+    names.add(entry.auth.token_env);
+  }
+  if (entry.auth && entry.auth.type !== "bearer") {
+    const envRef = entry.auth.token_env || entry.auth.value_env;
+    if (envRef && /^[A-Za-z_][A-Za-z0-9_]*$/.test(envRef)) names.add(envRef);
+  }
   return [...names];
 }
 export function fileName(path: string): string {

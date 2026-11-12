@@ -228,3 +228,112 @@ test('配置库加载返回修订号并隐藏敏感值，保存携带修订号�
   await assert.rejects(mockCall('save_catalog', { path: 'C:/demo/catalog.yaml', catalog: loaded.catalog, revisionId: 'stale-rev' }), /过期/);
   await mockCall('save_catalog', { path: 'C:/demo/catalog.yaml', catalog: loaded.catalog, revisionId: loaded.revisionId });
 });
+
+const { parseMcpSnippet, summarizeEntryEndpoint, formatEntryFullCommand } = await import('../src/snippet.ts');
+
+test('智能片段解析支持 Claude mcpServers JSON、OpenCode JSONC、CLI 命令与远程 URL', () => {
+  const claude = parseMcpSnippet(`{
+    "mcpServers": {
+      "playwright": {
+        "command": "npx",
+        "args": ["-y", "@playwright/mcp@latest"],
+        "env": { "API_KEY": "\${PLAYWRIGHT_KEY}" }
+      }
+    }
+  }`);
+  assert.equal(claude.sourceKind, 'json');
+  assert.equal(claude.entry.name, 'playwright');
+  assert.equal(claude.entry.transport, 'stdio');
+  assert.equal(claude.entry.command, 'npx');
+  assert.deepEqual(claude.entry.args, ['-y', '@playwright/mcp@latest']);
+  assert.deepEqual(claude.entry.env, { API_KEY: '${ENV:PLAYWRIGHT_KEY}' });
+
+  const opencode = parseMcpSnippet(`{
+    // OpenCode JSONC 带注释与数组 command
+    "mcp": {
+      "memory-srv": {
+        "type": "local",
+        "command": ["uvx", "mcp-server-memory"],
+        "environment": { "MEM_TOKEN": "{env:MEM_SECRET}" },
+      }
+    }
+  }`);
+  assert.equal(opencode.entry.name, 'memory-srv');
+  assert.equal(opencode.entry.command, 'uvx');
+  assert.deepEqual(opencode.entry.args, ['mcp-server-memory']);
+  assert.deepEqual(opencode.entry.env, { MEM_TOKEN: '${ENV:MEM_SECRET}' });
+
+  const claudeCli = parseMcpSnippet(
+    'claude mcp add --transport stdio -s project -e GITHUB_TOKEN=${GH_PAT} github -- npx -y @modelcontextprotocol/server-github'
+  );
+  assert.equal(claudeCli.sourceKind, 'cli');
+  assert.equal(claudeCli.entry.name, 'github');
+  assert.equal(claudeCli.entry.scope, 'project');
+  assert.equal(claudeCli.entry.command, 'npx');
+  assert.deepEqual(claudeCli.entry.args, ['-y', '@modelcontextprotocol/server-github']);
+  assert.deepEqual(claudeCli.entry.env, { GITHUB_TOKEN: '${ENV:GH_PAT}' });
+
+  const npxCli = parseMcpSnippet('BRAVE_API_KEY=${BRAVE_KEY} npx -y @modelcontextprotocol/server-brave-search');
+  assert.equal(npxCli.entry.name, 'brave-search');
+  assert.equal(npxCli.entry.command, 'npx');
+  assert.deepEqual(npxCli.entry.env, { BRAVE_API_KEY: '${ENV:BRAVE_KEY}' });
+
+  const remoteUrl = parseMcpSnippet('https://mcp.context7.com/sse');
+  assert.equal(remoteUrl.sourceKind, 'url');
+  assert.equal(remoteUrl.entry.transport, 'sse');
+  assert.equal(remoteUrl.entry.url, 'https://mcp.context7.com/sse');
+
+  assert.equal(summarizeEntryEndpoint(claude.entry), 'npx -y @playwright/mcp@latest');
+  assert.equal(formatEntryFullCommand(remoteUrl.entry), 'https://mcp.context7.com/sse');
+});
+
+test('移除配置（removals）与握手自检（probe_entry）IPC 契约完整且兼容空移除省略', async () => {
+  calls.length = 0;
+  const reqWithRemovals = {
+    catalogPath: 'catalog.yaml',
+    selection: {},
+    removals: { 'claude-code': ['filesystem'] },
+    scope: 'user',
+    mode: 'merge',
+    allowCommentStrip: false,
+  };
+  await api.plan(reqWithRemovals);
+  await api.apply(reqWithRemovals, false, 'preview-rem-1');
+  assert.deepEqual(calls[0], { command: 'plan', args: reqWithRemovals });
+  assert.deepEqual(calls[1], {
+    command: 'apply',
+    args: { ...reqWithRemovals, dryRun: false, previewId: 'preview-rem-1' },
+  });
+
+  // 空 removals 时自动省略字段以保持向后兼容
+  calls.length = 0;
+  await api.plan({ ...reqWithRemovals, selection: { codex: ['context7'] }, removals: {} });
+  assert.equal('removals' in calls[0].args, false);
+
+  // 演示模式支持纯移除计划、矩阵 envStatus 与 probe_entry 自检
+  const mat = await mockCall('matrix', { catalogPath: 'C:/demo/catalog.yaml', scope: 'user' });
+  assert.equal(typeof mat.envStatus, 'object');
+  const remPlan = await mockCall('plan', {
+    scope: 'user',
+    selection: {},
+    removals: { 'claude-code': ['filesystem'] },
+  });
+  assert.equal(remPlan.files.length, 1);
+  assert.equal(remPlan.files[0].removedCount, 1);
+  assert.match(remPlan.files[0].diff, /^-\s*"filesystem"/m);
+  const remReceipt = await mockCall('apply', {
+    scope: 'user',
+    selection: {},
+    removals: { 'claude-code': ['filesystem'] },
+    previewId: remPlan.previewId,
+  });
+  assert.equal(remReceipt.written, 1);
+
+  const probe = await mockCall('probe_entry', {
+    catalogPath: 'C:/demo/catalog.yaml',
+    entry: { name: 'filesystem', transport: 'stdio', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem'] },
+    scope: 'user',
+  });
+  assert.equal(probe.ok, true);
+  assert.ok(Array.isArray(probe.tools) && probe.tools.length > 0);
+});

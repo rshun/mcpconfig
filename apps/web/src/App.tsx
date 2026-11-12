@@ -3,7 +3,7 @@ import { api, isMock } from "./api";
 import { selectionFromCells } from "./selection";
 import { fileName } from "./library";
 import { ACCENT_PRESETS, readInitialAccent, readInitialTheme, type AccentId, type ThemeMode } from "./theme";
-import type { AppInfoDto, BackupDto, CatalogDto, ClientDto, GuiSettings, MatrixDto, MergeMode, PlanDto, PlanInput, ReceiptDto, Scope } from "./types";
+import type { AppInfoDto, BackupDto, CatalogDto, ClientDto, GuiSettings, MatrixDto, McpSelection, MergeMode, PlanDto, PlanInput, ReceiptDto, Scope } from "./types";
 import type { Entry } from "./pages/Catalog";
 import { MatrixPage } from "./pages/Matrix";
 import { LibraryPage } from "./pages/Library";
@@ -46,6 +46,7 @@ export default function App() {
   const [clientError, setClientError] = useState<string | null>(null);
   const [backups, setBackups] = useState<BackupDto[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [focus, setFocus] = useState<string | null>(null);
   const [plan, setPlan] = useState<PlanDto | null>(null);
   const [planRequest, setPlanRequest] = useState<PlanInput | null>(null);
@@ -90,6 +91,7 @@ export default function App() {
   const previewId = useRef<string | null>(null);
   const planningRequest = useRef(0);
   const backupRevision = useRef(0);
+  const customPlanTarget = useRef<{ selection: McpSelection; removals?: McpSelection } | null>(null);
   const entries = (catalog?.catalog?.entries ?? []) as Entry[];
   const editingEntry = overlay?.kind === "editor" ? overlay.entry : null;
   const projectRoot = scope === "user" ? null : project;
@@ -107,21 +109,24 @@ export default function App() {
   function canLeave() { return !dirty || window.confirm("有未保存的修改，确认放弃这些修改？"); }
   function navigate(next: Page) {
     if (writing || !canLeave()) return;
+    customPlanTarget.current = null;
     invalidatePlan(); setDirty(false); setPage(next); setOverlay(null); setFeedback(null); setPaletteOpen(false);
   }
   function closeOverlay() {
     if (writing || !canLeave()) return;
-    if (overlay?.kind === "preview") { invalidatePlan(); setAllowCommentStrip(false); }
+    if (overlay?.kind === "preview") { customPlanTarget.current = null; invalidatePlan(); setAllowCommentStrip(false); }
     setOverlay(null); setDirty(false);
   }
   function openOverlay(value: Exclude<Overlay, null>) {
     if (writing || !settingsValid || !canLeave()) return;
+    customPlanTarget.current = null;
     invalidatePlan(); setDirty(false); setOverlay(value); setPaletteOpen(false);
   }
   function openEditor(entry: Entry | null) { if (!busy) { setFeedback(null); openOverlay({ kind: "editor", entry }); } }
   const refresh = useCallback(async (path: string, currentScope: Scope, root: string | null) => {
     const revision = ++readRevision.current;
-    invalidatePlan(); setLoading(true); setSelected(new Set()); setMatrix(null); setClientError(null);
+    customPlanTarget.current = null;
+    invalidatePlan(); setLoading(true); setSelected(new Set()); setRemoved(new Set()); setMatrix(null); setClientError(null);
     setClients(null); setCatalogError(null);
     const effectiveRoot = currentScope === "user" ? null : root;
     const canDetect = currentScope === "user" || !!effectiveRoot;
@@ -173,12 +178,54 @@ export default function App() {
 
   function toggle(key: string) {
     if (writing) return;
-    invalidatePlan(); setSelected((previous) => { const next = new Set(previous); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+    customPlanTarget.current = null;
+    invalidatePlan();
+    setSelected((previous) => { const next = new Set(previous); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+    setRemoved((previous) => { if (!previous.has(key)) return previous; const next = new Set(previous); next.delete(key); return next; });
+  }
+  function toggleRemove(key: string) {
+    if (writing) return;
+    customPlanTarget.current = null;
+    invalidatePlan();
+    setRemoved((previous) => { const next = new Set(previous); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+    setSelected((previous) => { if (!previous.has(key)) return previous; const next = new Set(previous); next.delete(key); return next; });
+  }
+  function clearPending() {
+    if (writing) return;
+    customPlanTarget.current = null;
+    invalidatePlan();
+    setSelected(new Set());
+    setRemoved(new Set());
+  }
+  function selectDetectedForEntry(entryName: string) {
+    if (!matrix || !clients || writing) return;
+    const row = matrix.rows.find((r) => r.name === entryName);
+    if (!row) return;
+    const keys = clients
+      .filter((c) => c.state !== "missing" && !c.scopeBlock && row.cells.some((cell) => cell.clientId === c.id && cell.state !== "unsupported"))
+      .map((c) => `${entryName}::${c.id}`);
+    if (!keys.length) return;
+    customPlanTarget.current = null;
+    invalidatePlan();
+    setSelected((previous) => {
+      const next = new Set(previous);
+      const all = keys.every((key) => next.has(key));
+      keys.forEach((key) => (all ? next.delete(key) : next.add(key)));
+      return next;
+    });
+    setRemoved((previous) => {
+      const next = new Set(previous);
+      keys.forEach((key) => next.delete(key));
+      return next;
+    });
   }
   function selectAllClient(id: string) {
-    if (!matrix || writing) return; invalidatePlan();
+    if (!matrix || writing) return;
+    customPlanTarget.current = null;
+    invalidatePlan();
     const keys = matrix.rows.filter((row) => row.cells.some((cell) => cell.clientId === id && cell.state !== "unsupported")).map((row) => `${row.name}::${id}`);
     setSelected((previous) => { const next = new Set(previous); const all = keys.every((key) => next.has(key)); keys.forEach((key) => all ? next.delete(key) : next.add(key)); return next; });
+    setRemoved((previous) => { const next = new Set(previous); keys.forEach((key) => next.delete(key)); return next; });
   }
   function changeScope(next: Scope) {
     if (contextLocked || !canLeave()) return;
@@ -187,11 +234,24 @@ export default function App() {
   }
   function changeMode(next: MergeMode) { invalidatePlan(); setMode(next); }
   function changeAllowCommentStrip(next: boolean) { invalidatePlan(); setAllowCommentStrip(next); }
-  async function makePlan() {
-    if (!contextReady || !selected.size || writing || planning) return;
+  async function makePlan(overrideTarget?: { selection: McpSelection; removals?: McpSelection }) {
+    if (overrideTarget) customPlanTarget.current = overrideTarget;
+    const activeCustom = overrideTarget ?? customPlanTarget.current;
+    const selection = activeCustom ? activeCustom.selection : selectionFromCells(selected);
+    const removalsMap = activeCustom ? activeCustom.removals : (removed.size ? selectionFromCells(removed) : undefined);
+    const hasWork = Object.keys(selection).length > 0 || (!!removalsMap && Object.keys(removalsMap).length > 0);
+    if (!contextReady || !hasWork || writing || planning) return;
     invalidatePlan(); const revision = planRevision.current; const requestId = ++planningRequest.current;
     setPlanning(true); setFeedback(null);
-    const request: PlanInput = { catalogPath, selection: selectionFromCells(selected), scope, projectRoot, mode, allowCommentStrip };
+    const request: PlanInput = {
+      catalogPath,
+      selection,
+      ...(removalsMap && Object.keys(removalsMap).length ? { removals: removalsMap } : {}),
+      scope,
+      projectRoot,
+      mode,
+      allowCommentStrip,
+    };
     try {
       const value = await api.plan(request);
       if (!value.previewId) throw new Error("预览缺少一致性凭证，请更新配套桌面端后重新预览");
@@ -206,6 +266,7 @@ export default function App() {
     setWriting(true); setFeedback(null);
     try {
       const value = await api.apply(planRequest, false, plan.previewId); setReceipt(value);
+      customPlanTarget.current = null;
       setOverlay(null); setAllowCommentStrip(false); await refresh(catalogPath, scope, projectRoot); await loadBackups(); setPage("history");
       setFeedback({ tone: value.failed || value.blocked ? "warn" : "ok", text: `已写入 ${value.written} 个文件${value.failed ? `，${value.failed} 项失败，请检查逐项结果` : value.blocked ? `，${value.blocked} 项被阻止` : "；备份可在下方恢复"}` });
     } catch (e) {
@@ -283,12 +344,16 @@ export default function App() {
       {clientError && page !== "settings" && <Banner tone="warn"><span>当前范围的 Agent 状态未完整读取：{clientError}</span>{scope !== "user" && <button className="text-button" disabled={contextLocked} onClick={() => openOverlay({ kind: "project" })}>检查项目目录</button>}</Banner>}
       {!contextReady && settingsValid && scope !== "user" && <Banner tone="info"><span>先选择项目目录，即可读取项目或本地配置并选择分发目标。</span><button className="text-button" disabled={contextLocked} onClick={() => openOverlay({ kind: "project" })}>选择项目目录</button></Banner>}
       {page === "library" && !!catalog?.issues.length && <Banner tone="warn"><div>{catalog.issues.map((issue) => <p key={issue}>{issue}</p>)}</div></Banner>}
-      {page === "library" && <LibraryPage entries={entries} matrix={matrix} clients={clients} scope={scope} selected={selected} focus={focus} onFocus={setFocus} onToggle={toggle}
+      {page === "library" && <LibraryPage entries={entries} matrix={matrix} clients={clients} scope={scope} catalogPath={catalogPath} projectRoot={projectRoot}
+        selected={selected} removed={removed} focus={focus} onFocus={setFocus} onToggle={toggle} onToggleRemove={toggleRemove}
+        onSelectDetectedForEntry={selectDetectedForEntry} onClearPending={clearPending}
         onAdd={() => openEditor(null)} onEdit={openEditor} onImport={() => navigate("agents")} onManage={() => openOverlay({ kind: "library" })}
-        onPlan={makePlan} onMatrix={() => openOverlay({ kind: "matrix" })} onScopeChange={changeScope} mode={mode} onModeChange={changeMode}
+        onPlan={() => makePlan()} onMatrix={() => openOverlay({ kind: "matrix" })} onScopeChange={changeScope} mode={mode} onModeChange={changeMode}
         loading={loading} planning={planning} blocked={busy || loading} missing={catalogState === "missing"} error={catalogError} onRetry={() => refresh(catalogPath, scope, projectRoot)} />}
       {page === "agents" && <DetectPage key={`${scope}:${projectRoot}:${catalogPath}`} clients={clients} scope={scope} projectRoot={projectRoot} catalogPath={catalogPath}
-        loading={loading} contextReady={contextReady} busy={writing} onChooseProject={() => openOverlay({ kind: "project" })} onDirty={setDirty} onBusy={setWriting} onImported={async (value) => {
+        loading={loading} contextReady={contextReady} busy={writing} onChooseProject={() => openOverlay({ kind: "project" })} onDirty={setDirty} onBusy={setWriting}
+        onRemoveFromAgent={(clientId, entryName) => makePlan({ selection: {}, removals: { [clientId]: [entryName] } })}
+        onImported={async (value) => {
           setDirty(false); invalidatePlan(); await refresh(catalogPath, scope, projectRoot); await loadBackups(); setPage("library"); setFocus(null);
           setFeedback({ tone: value.warnings.length ? "warn" : "ok", text: `已导入 ${value.imported} 项到 MCP 库，源 Agent 文件未修改。${value.warnings.length ? value.warnings.join("；") : "下一步：选择配置并应用到目标 Agent。"}` });
         }} />}
@@ -327,8 +392,8 @@ export default function App() {
         setSettings(next); setProject(path); await refresh(catalogPath, scope, path); setOverlay(null);
         setFeedback({ tone: warnings.length ? "warn" : "ok", text: warnings.length ? warnings.join("；") : "项目目录已更新，请为当前项目选择分发目标。" });
       }} />}
-      {overlay.kind === "matrix" && <><p className="dialog-intro">高级批量工具。每个单元格表示一组 MCP 与 Agent，未勾选的条目保持不变。</p><MatrixPage matrix={matrix} selected={selected} onToggle={toggle} onSelectAllClient={selectAllClient} onPlan={makePlan} loading={planning || !contextReady} /></>}
-      {overlay.kind === "preview" && <DiffPage plan={plan} error={planError} applying={writing} onApply={applyPlan} onBack={closeOverlay} mode={mode} onModeChange={changeMode} allowCommentStrip={allowCommentStrip} onAllowCommentStripChange={changeAllowCommentStrip} onReplan={makePlan} planning={planning} />}
+      {overlay.kind === "matrix" && <><p className="dialog-intro">高级批量工具。每个单元格表示一组 MCP 与 Agent，未勾选的条目保持不变。</p><MatrixPage matrix={matrix} selected={selected} onToggle={toggle} onSelectAllClient={selectAllClient} onPlan={() => makePlan()} loading={planning || !contextReady} /></>}
+      {overlay.kind === "preview" && <DiffPage plan={plan} error={planError} applying={writing} onApply={applyPlan} onBack={closeOverlay} mode={mode} onModeChange={changeMode} allowCommentStrip={allowCommentStrip} onAllowCommentStripChange={changeAllowCommentStrip} onReplan={() => makePlan()} planning={planning} />}
     </Dialog>}
   </div>;
 }

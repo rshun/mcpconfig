@@ -12,6 +12,7 @@ pub mod env;
 pub mod importing;
 pub mod inspect;
 mod planning;
+pub mod probe;
 pub mod settings;
 
 use mcp_core::adapters::{self, Adapter, ClientKind, CustomAdapter};
@@ -199,7 +200,11 @@ impl App {
 
     /// 制定应用计划（不写盘）。
     pub fn plan(&self, req: &PlanRequest) -> Result<PlanOutcome, AppError> {
-        let (cat, issues) = self.load_catalog(&req.catalog_path)?;
+        let (cat, issues) = if !req.catalog_path.exists() && req.is_removal_only() {
+            (Catalog::default(), Vec::new())
+        } else {
+            self.load_catalog(&req.catalog_path)?
+        };
         self.plan_catalog(req, cat, issues)
     }
 
@@ -216,10 +221,20 @@ impl App {
 
         let ids: Vec<String> = match &req.clients {
             Some(list) => list.clone(),
-            None => match &req.selection {
-                Some(selection) => selection.keys().cloned().collect(),
-                None => adapter_set.ids(),
-            },
+            None => {
+                if req.selection.is_some() || req.removals.is_some() {
+                    let mut set = std::collections::BTreeSet::new();
+                    if let Some(selection) = &req.selection {
+                        set.extend(selection.keys().cloned());
+                    }
+                    if let Some(removals) = &req.removals {
+                        set.extend(removals.keys().cloned());
+                    }
+                    set.into_iter().collect()
+                } else {
+                    adapter_set.ids()
+                }
+            }
         };
 
         if let Some(selection) = &req.selection {
@@ -243,6 +258,21 @@ impl App {
             // 先过滤再解析变量，避免未选中条目的变量告警进入本次计划。
             cat.entries
                 .retain(|entry| selection.values().any(|names| names.contains(&entry.name)));
+        } else if req.removals.is_some() {
+            cat.entries.clear();
+        }
+
+        if let Some(removals) = &req.removals {
+            for id in removals.keys() {
+                adapter_set
+                    .by_id(id)
+                    .ok_or_else(|| AppError::UnknownClient(id.clone()))?;
+                if !ids.contains(id) {
+                    return Err(AppError::InvalidSelection(format!(
+                        "客户端 {id} 不在本次目标范围内"
+                    )));
+                }
+            }
         }
 
         let entry_count = cat.entries.len();
@@ -263,10 +293,19 @@ impl App {
                     Some(selection) => selection
                         .get(id)
                         .is_some_and(|names| names.contains(&entry.name)),
-                    None => true,
+                    None => req.removals.is_none(),
                 })
                 .collect();
-            if req.selection.is_some() && raw_client_entries.is_empty() {
+            let client_removals: &[String] = req
+                .removals
+                .as_ref()
+                .and_then(|r| r.get(id))
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            if (req.selection.is_some() || req.removals.is_some())
+                && raw_client_entries.is_empty()
+                && client_removals.is_empty()
+            {
                 continue;
             }
 
@@ -308,6 +347,7 @@ impl App {
                 &PlanFileOptions {
                     root_key_override: Some(&loc.root_key),
                     managed_entries,
+                    removals: client_removals,
                 },
             )?;
             plans.push(plan);
@@ -462,6 +502,90 @@ pub struct MatrixView {
     pub client_details: Vec<(String, String, ClientKind)>,
     pub rows: Vec<MatrixRow>,
     pub issues: Vec<String>,
+    /// 零密钥环境变量就绪态：仅记录清单中引用的环境变量在当前宿主环境是否已配置（布尔值，绝不含变量值）。
+    pub env_status: BTreeMap<String, bool>,
+}
+
+fn collect_vars_in_str(text: &str, out: &mut std::collections::BTreeSet<String>) {
+    let mut rest = text;
+    while !rest.is_empty() {
+        let prefix = ["${ENV:", "${env:", "{env:", "${"]
+            .into_iter()
+            .find(|p| rest.starts_with(*p));
+        if let Some(prefix) = prefix {
+            if let Some(end) = rest.find('}') {
+                let name = rest[prefix.len()..end].trim();
+                if !name.is_empty()
+                    && !matches!(name, "HOME" | "HOME_DIR" | "PROJECT_ROOT" | "CWD")
+                    && name
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+                {
+                    out.insert(name.to_string());
+                }
+                rest = &rest[end + 1..];
+                continue;
+            }
+            break;
+        }
+        let ch = rest.chars().next().unwrap();
+        rest = &rest[ch.len_utf8()..];
+    }
+}
+
+fn collect_entry_env_vars(entry: &McpEntry) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    if let Some(s) = &entry.command {
+        collect_vars_in_str(s, &mut out);
+    }
+    for arg in &entry.args {
+        collect_vars_in_str(arg, &mut out);
+    }
+    if let Some(s) = &entry.cwd {
+        collect_vars_in_str(s, &mut out);
+    }
+    if let Some(s) = &entry.url {
+        collect_vars_in_str(s, &mut out);
+    }
+    for v in entry.env.values() {
+        collect_vars_in_str(v, &mut out);
+    }
+    for v in entry.headers.values() {
+        collect_vars_in_str(v, &mut out);
+    }
+    if let Some(var) = entry.auth.as_ref().and_then(|a| a.env_name()) {
+        out.insert(var.to_string());
+    }
+    for ov in entry.overrides.values() {
+        if let Some(s) = &ov.command {
+            collect_vars_in_str(s, &mut out);
+        }
+        if let Some(args) = &ov.args {
+            for arg in args {
+                collect_vars_in_str(arg, &mut out);
+            }
+        }
+        if let Some(s) = &ov.cwd {
+            collect_vars_in_str(s, &mut out);
+        }
+        if let Some(s) = &ov.url {
+            collect_vars_in_str(s, &mut out);
+        }
+        if let Some(env_map) = &ov.env {
+            for v in env_map.values() {
+                collect_vars_in_str(v, &mut out);
+            }
+        }
+        if let Some(hdr_map) = &ov.headers {
+            for v in hdr_map.values() {
+                collect_vars_in_str(v, &mut out);
+            }
+        }
+        if let Some(var) = ov.auth.as_ref().and_then(|a| a.env_name()) {
+            out.insert(var.to_string());
+        }
+    }
+    out
 }
 
 impl App {
@@ -587,6 +711,15 @@ impl App {
             });
         }
 
+        let mut env_status = BTreeMap::new();
+        for entry in &cat.entries {
+            for var in collect_entry_env_vars(entry) {
+                env_status
+                    .entry(var.clone())
+                    .or_insert_with(|| ctx.lookup_var(&var).is_some());
+            }
+        }
+
         Ok(MatrixView {
             platform: self.platform,
             scope,
@@ -594,6 +727,7 @@ impl App {
             client_details,
             rows,
             issues,
+            env_status,
         })
     }
 }
@@ -608,6 +742,8 @@ pub struct PlanRequest {
     /// 精确选择：客户端 id → MCP 名称。`None` 保留 CLI 的全清单行为；
     /// `Some(空映射)` 或客户端对应的空列表均不产生写入。
     pub selection: Option<BTreeMap<String, Vec<String>>>,
+    /// 从目标客户端移除的 MCP 条目：客户端 id → MCP 名称。
+    pub removals: Option<BTreeMap<String, Vec<String>>>,
     pub scope: Scope,
     pub mode: MergeMode,
     /// JSONC 文件含注释时是否允许重写（会丢注释）
@@ -620,10 +756,24 @@ impl PlanRequest {
             catalog_path: catalog_path.into(),
             clients: None,
             selection: None,
+            removals: None,
             scope: Scope::User,
             mode: MergeMode::Merge,
             allow_comment_strip: false,
         }
+    }
+
+    /// 是否仅为移除操作（不含任何新增/覆盖选择）。此时即便尚未创建 `catalog.yaml` 也允许安全移除已有配置。
+    pub fn is_removal_only(&self) -> bool {
+        let no_writes = self
+            .selection
+            .as_ref()
+            .is_some_and(|s| s.values().all(Vec::is_empty));
+        let has_removals = self
+            .removals
+            .as_ref()
+            .is_some_and(|r| r.values().any(|v| !v.is_empty()));
+        no_writes && has_removals
     }
 }
 
