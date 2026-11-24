@@ -40,7 +40,20 @@
   --accent-soft: #e8f0fe;
   --accent-border: #a5c3f8;
   --accent-shadow: rgba(37, 99, 235, 0.32);
+  --accent-edge: #1e40af;
   --focus-ring: rgba(37, 99, 235, 0.34);
+
+  --btn-3d-bg: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
+  --btn-3d-bg-hover: linear-gradient(180deg, var(--surface) 0%, var(--surface-hover) 100%);
+  --btn-3d-bg-active: linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%);
+  --btn-3d-edge: var(--line-strong);
+  --btn-3d-highlight: rgba(255, 255, 255, 0.92);
+  --btn-primary-highlight: rgba(255, 255, 255, 0.34);
+  --btn-3d-drop: rgba(15, 23, 42, 0.13);
+  --btn-3d-drop-hover: rgba(15, 23, 42, 0.18);
+  --danger-edge: #8f2424;
+  --danger-soft-edge: #e4a3a3;
+  --well-inset: inset 0 1.5px 3px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(15, 23, 42, 0.05), 0 1px 0 rgba(255, 255, 255, 0.72);
 
   --ok-fg: #0b7a64;
   --ok-bg: #e6f6f1;
@@ -106,7 +119,20 @@
   --accent-soft: rgba(59, 130, 246, 0.16);
   --accent-border: rgba(96, 165, 250, 0.44);
   --accent-shadow: rgba(37, 99, 235, 0.42);
+  --accent-edge: #1d4ed8;
   --focus-ring: rgba(96, 165, 250, 0.42);
+
+  --btn-3d-bg: linear-gradient(180deg, var(--surface-3) 0%, var(--surface-2) 100%);
+  --btn-3d-bg-hover: linear-gradient(180deg, var(--line-strong) 0%, var(--surface-3) 100%);
+  --btn-3d-bg-active: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
+  --btn-3d-edge: rgba(0, 0, 0, 0.62);
+  --btn-3d-highlight: rgba(255, 255, 255, 0.11);
+  --btn-primary-highlight: rgba(255, 255, 255, 0.28);
+  --btn-3d-drop: rgba(0, 0, 0, 0.5);
+  --btn-3d-drop-hover: rgba(0, 0, 0, 0.65);
+  --danger-edge: #991b1b;
+  --danger-soft-edge: rgba(248, 113, 113, 0.36);
+  --well-inset: inset 0 2px 4px rgba(0, 0, 0, 0.44), inset 0 1px 0 rgba(0, 0, 0, 0.32), 0 1px 0 rgba(255, 255, 255, 0.05);
 
   --ok-fg: #34d399;
   --ok-bg: rgba(16, 185, 129, 0.14);
@@ -152,6 +178,7 @@
   --accent-soft: #ede9fe;
   --accent-border: #c4b5fd;
   --accent-shadow: rgba(109, 40, 217, 0.3);
+  --accent-edge: #4c1d95;
   --focus-ring: rgba(124, 58, 237, 0.34);
 }
 [data-theme="dark"][data-accent="violet"] {
@@ -175,6 +202,7 @@
   --accent-soft: rgba(139, 92, 246, 0.17);
   --accent-border: rgba(167, 139, 250, 0.44);
   --accent-shadow: rgba(109, 40, 217, 0.45);
+  --accent-edge: #5b21b6;
   --focus-ring: rgba(167, 139, 250, 0.42);
 }
 
@@ -199,6 +227,7 @@
   --accent-soft: #fcece4;
   --accent-border: #efb9a3;
   --accent-shadow: rgba(194, 89, 52, 0.3);
+  --accent-edge: #8a3519;
   --focus-ring: rgba(217, 107, 67, 0.34);
 }
 [data-theme="dark"][data-accent="amber"] {
@@ -222,6 +251,7 @@
   --accent-soft: rgba(235, 136, 102, 0.16);
   --accent-border: rgba(235, 136, 102, 0.42);
   --accent-shadow: rgba(194, 89, 52, 0.4);
+  --accent-edge: #9a3d1f;
   --focus-ring: rgba(235, 136, 102, 0.42);
 }
 
@@ -245,6 +275,7 @@
   --accent-soft: #e4f6f1;
   --accent-border: #9ad8cb;
   --accent-shadow: rgba(11, 135, 117, 0.32);
+  --accent-edge: #065f52;
   --focus-ring: rgba(13, 148, 130, 0.36);
 }
 [data-theme="dark"][data-accent="emerald"] {
@@ -268,6 +299,7 @@
   --accent-soft: rgba(45, 212, 191, 0.15);
   --accent-border: rgba(45, 212, 191, 0.42);
   --accent-shadow: rgba(13, 148, 136, 0.4);
+  --accent-edge: #0f766e;
   --focus-ring: rgba(45, 212, 191, 0.42);
 }
 
@@ -291,6 +323,7 @@
   --accent-soft: #ffe4e8;
   --accent-border: #fda4b4;
   --accent-shadow: rgba(225, 29, 72, 0.3);
+  --accent-edge: #9f1239;
   --focus-ring: rgba(225, 29, 72, 0.32);
 }
 [data-theme="dark"][data-accent="rose"] {
@@ -314,6 +347,7 @@
   --accent-soft: rgba(251, 113, 133, 0.16);
   --accent-border: rgba(251, 113, 133, 0.42);
   --accent-shadow: rgba(225, 29, 72, 0.42);
+  --accent-edge: #881337;
   --focus-ring: rgba(251, 113, 133, 0.42);
 }
 
@@ -337,6 +371,7 @@
   --accent-soft: #ebebf0;
   --accent-border: #b5b5be;
   --accent-shadow: rgba(24, 24, 27, 0.24);
+  --accent-edge: #09090b;
   --focus-ring: rgba(39, 39, 42, 0.28);
 }
 [data-theme="dark"][data-accent="slate"] {
@@ -360,6 +395,8 @@
   --accent-soft: rgba(228, 228, 231, 0.14);
   --accent-border: rgba(228, 228, 231, 0.36);
   --accent-shadow: rgba(0, 0, 0, 0.45);
+  --accent-edge: #a1a1aa;
+  --btn-primary-highlight: rgba(255, 255, 255, 0.72);
   --focus-ring: rgba(228, 228, 231, 0.35);
 }
 
@@ -778,6 +815,33 @@ input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px;
 }
 .font-sample[data-font-preview="wenkai"] { font-family: var(--font-wenkai); }
 .font-sample[data-font-preview="sans"] { font-family: var(--font-sans); }
+
+.style-sample {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 36px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.style-sample-pill {
+  display: inline-block;
+  width: 24px;
+  height: 14px;
+  border-radius: 5px;
+}
+.style-sample-pill[data-style-preview="3d"] {
+  background: var(--accent-grad);
+  box-shadow: inset 0 1px 0 var(--btn-primary-highlight), 0 2.5px 0 0 var(--accent-edge), 0 4px 7px -2px var(--accent-shadow);
+  transform: translateY(-1px);
+}
+.style-sample-pill[data-style-preview="flat"] {
+  background: var(--accent);
+  border: 1px solid transparent;
+  box-shadow: none;
+}
 
 /* Agent 品牌色徽标 */
 .agent-badge {
@@ -1520,6 +1584,215 @@ table.matrix { border-collapse: collapse; width: 100%; font-size: 12px; }
 .preview-footer .field-hint { margin: 0; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
 .row-action { padding: 6px 8px; font-size: 12px; color: var(--accent); }
 .row-action svg { display: none; }
+
+/* 精工微立体（Tactile 3D）质感层 */
+:root:not([data-style="flat"]) .brand-mark {
+  box-shadow: inset 0 1px 0 var(--btn-primary-highlight), inset 0 -1px 0 rgba(0, 0, 0, 0.14), 0 3px 0 0 var(--accent-edge), 0 6px 14px -3px var(--accent-shadow);
+}
+
+:root:not([data-style="flat"]) .btn:not(.ghost) {
+  background: var(--btn-3d-bg);
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 2.5px 0 0 var(--btn-3d-edge), 0 4px 10px -3px var(--btn-3d-drop);
+}
+:root:not([data-style="flat"]) .btn:not(.ghost):hover:not(:disabled) {
+  background: var(--btn-3d-bg-hover);
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 3.5px 0 0 var(--btn-3d-edge), 0 7px 14px -4px var(--btn-3d-drop-hover);
+}
+:root:not([data-style="flat"]) .btn:not(.ghost):active:not(:disabled) {
+  background: var(--btn-3d-bg-active);
+  transform: translateY(1.5px);
+  box-shadow: inset 0 1px 1px rgba(15, 23, 42, 0.08), 0 1px 0 0 var(--btn-3d-edge), 0 1px 2px var(--btn-3d-drop);
+}
+
+:root:not([data-style="flat"]) .btn.small:not(.ghost) {
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 2px 0 0 var(--btn-3d-edge), 0 3px 7px -2px var(--btn-3d-drop);
+}
+:root:not([data-style="flat"]) .btn.small:not(.ghost):hover:not(:disabled) {
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 3px 0 0 var(--btn-3d-edge), 0 6px 11px -3px var(--btn-3d-drop-hover);
+}
+:root:not([data-style="flat"]) .btn.small:not(.ghost):active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 1px rgba(15, 23, 42, 0.08), 0 1px 0 0 var(--btn-3d-edge);
+}
+
+:root:not([data-style="flat"]) .btn.primary {
+  background: var(--accent-grad);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: inset 0 1px 0 var(--btn-primary-highlight), inset 0 -1px 0 rgba(0, 0, 0, 0.14), 0 3px 0 0 var(--accent-edge), 0 6px 14px -3px var(--accent-shadow);
+}
+:root:not([data-style="flat"]) .btn.primary:hover:not(:disabled) {
+  background: var(--accent-grad-hover);
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 var(--btn-primary-highlight), inset 0 -1px 0 rgba(0, 0, 0, 0.16), 0 4px 0 0 var(--accent-edge), 0 9px 18px -4px var(--accent-shadow);
+}
+:root:not([data-style="flat"]) .btn.primary:active:not(:disabled) {
+  background: var(--accent-grad-hover);
+  transform: translateY(2px);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2), 0 1px 0 0 var(--accent-edge), 0 2px 4px -1px var(--accent-shadow);
+}
+
+:root:not([data-style="flat"]) .btn.danger:not(.ghost) {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--danger-bg) 100%);
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 2.5px 0 0 var(--danger-soft-edge), 0 4px 9px -3px rgba(190, 58, 58, 0.16);
+}
+:root:not([data-style="flat"]) .btn.danger:not(.ghost):hover:not(:disabled) {
+  background: linear-gradient(180deg, #d94646 0%, var(--danger-fg) 100%);
+  border-color: var(--danger-edge);
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 3.5px 0 0 var(--danger-edge), 0 8px 16px -4px rgba(190, 58, 58, 0.34);
+}
+:root:not([data-style="flat"]) .btn.danger:not(.ghost):active:not(:disabled) {
+  transform: translateY(1.5px);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2), 0 1px 0 0 var(--danger-edge);
+}
+
+:root:not([data-style="flat"]) .btn:not(.ghost):disabled {
+  transform: none;
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 1px 0 0 var(--btn-3d-edge);
+}
+:root:not([data-style="flat"]) .btn.primary:disabled {
+  box-shadow: inset 0 1px 0 var(--btn-primary-highlight), 0 1.5px 0 0 var(--accent-edge);
+}
+
+:root:not([data-style="flat"]) .topbar .btn.ghost.icon-button {
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease), box-shadow 0.15s var(--ease), transform 0.12s var(--ease), color 0.15s var(--ease);
+}
+:root:not([data-style="flat"]) .topbar .btn.ghost.icon-button:hover:not(:disabled),
+:root:not([data-style="flat"]) .topbar .palette-trigger.active {
+  background: var(--btn-3d-bg);
+  border-color: var(--line);
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 2px 0 0 var(--btn-3d-edge), 0 4px 8px -3px var(--btn-3d-drop);
+}
+:root:not([data-style="flat"]) .topbar .btn.ghost.icon-button:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 1px rgba(15, 23, 42, 0.08), 0 1px 0 0 var(--btn-3d-edge);
+}
+
+:root:not([data-style="flat"]) .library-switch {
+  background: var(--btn-3d-bg);
+  border-color: var(--line-strong);
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 2.5px 0 0 var(--btn-3d-edge), 0 4px 10px -3px var(--btn-3d-drop);
+}
+:root:not([data-style="flat"]) .library-switch:hover:not(:disabled) {
+  background: var(--btn-3d-bg-hover);
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 3.5px 0 0 var(--accent-border), 0 7px 14px -4px var(--btn-3d-drop-hover);
+}
+:root:not([data-style="flat"]) .library-switch:active:not(:disabled) {
+  transform: translateY(1.5px);
+  box-shadow: inset 0 1px 1px rgba(15, 23, 42, 0.08), 0 1px 0 0 var(--btn-3d-edge);
+}
+
+:root:not([data-style="flat"]) .nav-item.active {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--accent-soft) 100%);
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 2px 0 0 var(--accent-border), 0 4px 10px -4px var(--accent-shadow);
+}
+:root:not([data-style="flat"]) .nav-item:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+:root:not([data-style="flat"]) .segmented-filters,
+:root:not([data-style="flat"]) .theme-mode-switch {
+  box-shadow: var(--well-inset);
+}
+:root:not([data-style="flat"]) .seg-btn,
+:root:not([data-style="flat"]) .theme-mode-btn {
+  transition: background 0.14s var(--ease), color 0.14s var(--ease), box-shadow 0.14s var(--ease), transform 0.12s var(--ease);
+}
+:root:not([data-style="flat"]) .seg-btn.active,
+:root:not([data-style="flat"]) .theme-mode-btn.active {
+  background: var(--btn-3d-bg);
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 2px 0 0 var(--btn-3d-edge), 0 3px 6px -2px var(--btn-3d-drop);
+}
+:root:not([data-style="flat"]) .seg-btn:active:not(:disabled),
+:root:not([data-style="flat"]) .theme-mode-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+:root:not([data-style="flat"]) .toggle-switch {
+  box-shadow: var(--well-inset);
+}
+:root:not([data-style="flat"]) .toggle-switch.on {
+  background: var(--accent-grad);
+  border-color: var(--accent-edge);
+  box-shadow: inset 0 1.5px 3px rgba(0, 0, 0, 0.26);
+}
+:root:not([data-style="flat"]) .toggle-thumb {
+  background: linear-gradient(180deg, #ffffff 0%, #e9eff7 100%);
+  box-shadow: inset 0 1px 0 #ffffff, 0 2px 4px rgba(15, 23, 42, 0.3), 0 1px 0 rgba(15, 23, 42, 0.14);
+}
+:root:not([data-style="flat"])[data-theme="dark"][data-accent="slate"] .toggle-switch.on .toggle-thumb {
+  background: linear-gradient(180deg, #27272a 0%, #18181b 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 2px 4px rgba(0, 0, 0, 0.45);
+}
+
+:root:not([data-style="flat"]) .accent-chip,
+:root:not([data-style="flat"]) .settings-accent-card,
+:root:not([data-style="flat"]) .settings-font-card,
+:root:not([data-style="flat"]) .cell-btn {
+  background: var(--btn-3d-bg);
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 2px 0 0 var(--btn-3d-edge), 0 3px 8px -3px var(--btn-3d-drop);
+  transition: border-color 0.14s var(--ease), background 0.14s var(--ease), box-shadow 0.14s var(--ease), transform 0.12s var(--ease);
+}
+:root:not([data-style="flat"]) .accent-chip:hover:not(:disabled),
+:root:not([data-style="flat"]) .settings-accent-card:hover:not(:disabled),
+:root:not([data-style="flat"]) .settings-font-card:hover:not(:disabled),
+:root:not([data-style="flat"]) .cell-btn:hover:not(:disabled) {
+  background: var(--btn-3d-bg-hover);
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 3px 0 0 var(--accent-border), 0 6px 12px -4px var(--btn-3d-drop-hover);
+}
+:root:not([data-style="flat"]) .accent-chip:active:not(:disabled),
+:root:not([data-style="flat"]) .settings-accent-card:active:not(:disabled),
+:root:not([data-style="flat"]) .settings-font-card:active:not(:disabled),
+:root:not([data-style="flat"]) .cell-btn:active:not(:disabled) {
+  transform: translateY(1.5px);
+  box-shadow: inset 0 1px 1px rgba(15, 23, 42, 0.08), 0 1px 0 0 var(--btn-3d-edge);
+}
+:root:not([data-style="flat"]) .accent-chip.active,
+:root:not([data-style="flat"]) .settings-accent-card.active,
+:root:not([data-style="flat"]) .settings-font-card.active,
+:root:not([data-style="flat"]) .cell-btn.selected,
+:root:not([data-style="flat"]) .cell-btn.sel {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--accent-soft) 100%);
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 2.5px 0 0 var(--accent), 0 6px 12px -4px var(--accent-shadow);
+}
+
+:root:not([data-style="flat"]) .agent-choice.active {
+  background: var(--btn-3d-bg);
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 2px 0 0 var(--accent-border), 0 5px 12px -4px var(--btn-3d-drop);
+}
+:root:not([data-style="flat"]) .agent-target:not(.unavailable) {
+  background: var(--btn-3d-bg);
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 2px 0 0 var(--btn-3d-edge), 0 3px 6px -3px var(--btn-3d-drop);
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease), box-shadow 0.15s var(--ease), transform 0.12s var(--ease);
+}
+:root:not([data-style="flat"]) .agent-target:hover:not(.unavailable) {
+  background: var(--btn-3d-bg-hover);
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 3px 0 0 var(--accent-border), 0 6px 10px -4px var(--btn-3d-drop-hover);
+}
+:root:not([data-style="flat"]) .agent-target.chosen {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--row-focus) 100%);
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 2px 0 0 var(--accent-border), 0 4px 10px -4px var(--accent-shadow);
+}
+:root:not([data-style="flat"]) .agent-target.marked-remove {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--danger-bg) 100%);
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 2px 0 0 var(--danger-soft-edge);
+}
+
+:root:not([data-style="flat"]) .select {
+  background: var(--btn-3d-bg);
+  box-shadow: inset 0 1px 0 var(--btn-3d-highlight), 0 2px 0 0 var(--btn-3d-edge), 0 3px 6px -3px var(--btn-3d-drop);
+}
+
+:root:not([data-style="flat"]) button:focus-visible,
+:root:not([data-style="flat"]) select:focus-visible {
+  box-shadow: 0 0 0 4px var(--focus-ring);
+}
 
 /* 响应式断点 */
 @media (max-width: 1200px) {

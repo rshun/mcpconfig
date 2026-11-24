@@ -430,7 +430,16 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     await evaluate('document.querySelector(".settings-font-card:first-child").click()');
     assert.equal(await evaluate('document.documentElement.dataset.font'), 'wenkai');
     assert.equal(await evaluate('localStorage.getItem("mcp-hub-font")'), 'wenkai');
+    assert.equal(await evaluate('document.documentElement.dataset.style'), '3d');
+    await evaluate('document.querySelector(".settings-style-card:last-child").click()');
+    assert.equal(await evaluate('document.documentElement.dataset.style'), 'flat');
+    assert.equal(await evaluate('localStorage.getItem("mcp-hub-style")'), 'flat');
+    await evaluate('document.querySelector(".settings-style-card:first-child").click()');
+    assert.equal(await evaluate('document.documentElement.dataset.style'), '3d');
+    assert.equal(await evaluate('localStorage.getItem("mcp-hub-style")'), '3d');
     await screenshot('software-settings');
+    await evaluate('document.querySelectorAll(".settings-panel")[1]?.scrollIntoView({ block: "end" })');
+    await screenshot('software-settings-appearance');
     await click('我的 MCP'); assert.equal(await evaluate('document.querySelector("[aria-label=\\"配置范围\\"]").value'), 'user');
     await send('Page.reload', {}, sessionId); await ready();
     assert.equal(await evaluate('document.querySelector("[aria-label=\\"配置范围\\"]").value'), 'project');
