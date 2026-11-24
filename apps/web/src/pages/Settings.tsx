@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
-import { ACCENT_PRESETS, type AccentId, type ThemeMode } from "../theme";
+import { ACCENT_PRESETS, FONT_PRESETS, type AccentId, type FontId, type ThemeMode } from "../theme";
 import type { GuiSettings } from "../types";
 import { Icon } from "../components/Icon";
 import { Banner, Field } from "../components/ui";
@@ -11,8 +11,10 @@ export function SettingsPage({
   dataDir,
   theme = "light",
   accent = "ocean",
+  font = "wenkai",
   onThemeChange,
   onAccentChange,
+  onFontChange,
   onSave,
   onDirty,
   onBusy,
@@ -21,8 +23,10 @@ export function SettingsPage({
   dataDir: string;
   theme?: ThemeMode;
   accent?: AccentId;
+  font?: FontId;
   onThemeChange?: (next: ThemeMode) => void;
   onAccentChange?: (next: AccentId) => void;
+  onFontChange?: (next: FontId) => void;
   onSave: (settings: GuiSettings) => Promise<void>;
   onDirty: (dirty: boolean) => void;
   onBusy: (busy: boolean) => void;
@@ -203,7 +207,7 @@ export function SettingsPage({
 
       {onThemeChange && onAccentChange && (
         <div className="panel settings-panel">
-          <div className="panel-head">外观与主题色</div>
+          <div className="panel-head">外观与字体</div>
           <div className="panel-body">
             <Field label="明暗外观">
               <div className="theme-mode-switch settings-mode-switch">
@@ -225,6 +229,33 @@ export function SettingsPage({
                 </button>
               </div>
             </Field>
+            {onFontChange && (
+              <Field label="界面字体">
+                <div className="settings-font-grid">
+                  {FONT_PRESETS.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`settings-font-card${font === item.id ? " active" : ""}`}
+                      onClick={() => onFontChange(item.id)}
+                      aria-pressed={font === item.id}
+                    >
+                      <span
+                        className="font-sample"
+                        data-font-preview={item.id}
+                        aria-hidden="true"
+                      >
+                        {item.sample}
+                      </span>
+                      <span>
+                        <b>{item.label}</b>
+                        <small>{item.desc}</small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </Field>
+            )}
             <Field label="主题色调">
               <div className="settings-accent-grid">
                 {ACCENT_PRESETS.map((item) => (
@@ -249,7 +280,7 @@ export function SettingsPage({
               </div>
             </Field>
             <p className="muted">
-              切换后立即生效并自动记住，也可随时通过右上角调色盘快速切换。
+              切换后立即生效并自动记住，也可随时通过右上角调色盘快速切换。若系统未安装「霞鹜文楷 屏幕阅读版」，将自动回退到现代无衬线字体。
             </p>
           </div>
         </div>

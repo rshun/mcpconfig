@@ -337,3 +337,44 @@ test('移除配置（removals）与握手自检（probe_entry）IPC 契约完整
   assert.equal(probe.ok, true);
   assert.ok(Array.isArray(probe.tools) && probe.tools.length > 0);
 });
+
+const { FONT_PRESETS, isFontId, readInitialFont } = await import('../src/theme.ts');
+
+test('字体预设默认使用温润文楷，支持 URL 参数与 localStorage 覆盖', () => {
+  assert.deepEqual(FONT_PRESETS.map((item) => item.id), ['wenkai', 'sans']);
+  assert.equal(isFontId('wenkai'), true);
+  assert.equal(isFontId('sans'), true);
+  assert.equal(isFontId('other'), false);
+  assert.equal(isFontId(null), false);
+
+  const prevSearch = globalThis.window.location.search;
+  const hasStorage = Object.prototype.hasOwnProperty.call(globalThis, 'localStorage');
+  const prevStorage = globalThis.localStorage;
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, String(value)),
+  };
+
+  try {
+    globalThis.window.location.search = '';
+    assert.equal(readInitialFont(), 'wenkai');
+
+    store.set('mcp-hub-font', 'sans');
+    assert.equal(readInitialFont(), 'sans');
+
+    store.set('mcp-hub-font', 'invalid-font');
+    assert.equal(readInitialFont(), 'wenkai');
+
+    globalThis.window.location.search = '?font=sans';
+    assert.equal(readInitialFont(), 'sans');
+
+    store.set('mcp-hub-font', 'sans');
+    globalThis.window.location.search = '?font=wenkai';
+    assert.equal(readInitialFont(), 'wenkai');
+  } finally {
+    globalThis.window.location.search = prevSearch;
+    if (hasStorage) globalThis.localStorage = prevStorage;
+    else delete globalThis.localStorage;
+  }
+});

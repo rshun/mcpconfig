@@ -4,7 +4,7 @@
 
 把一份客户自维护的清单，按各客户端的原生格式写入 14 个 MCP 客户端——不用手工配 M×N×K 次。
 
-当前版本：**v0.7.0**。本版完成现代开发者工作台交互升级与全生命周期管理：支持一键粘贴 JSON/JSONC/CLI 命令智能解析、按 Agent 安全移除条目（保留外层注释与自动备份）、`stdio` 启动握手自检（`initialize` + `tools/list`）、零密钥环境变量就绪态检测、启用/停用拨动开关及自定义 Header 认证可视化编辑。使用及回退见 [发布说明](docs/releases/v0.7.0.md)。
+当前版本：**v0.7.1**。本版升级前端字体与排版体验：默认采用「温润文楷」（现代西文无衬线搭配霞鹜文楷屏幕阅读版，未安装时自动回退至优化后的现代黑体栈），支持右上角调色盘与「软件设置 → 外观与字体」一键切换「温润文楷 / 现代黑体」并自动记住偏好；同时优化等宽代码防连字与字重层级，零新增依赖、零安装包体积增量。使用及回退见 [发布说明](docs/releases/v0.7.1.md)。
 
 ## 现在的状态
 
@@ -54,12 +54,12 @@ cargo run -p mcp-io --example end_to_end
 
 ## 图形界面
 
-Windows 用户可下载 [GUI 安装程序](https://github.com/rshun/mcpconfig/releases/download/v0.7.0/MCP.Hub_0.7.0_x64-setup.exe)，
-或 [GUI 免安装 ZIP](https://github.com/rshun/mcpconfig/releases/download/v0.7.0/MCP.Hub_0.7.0_windows-x64-portable.zip)。
+Windows 用户可下载 [GUI 安装程序](https://github.com/rshun/mcpconfig/releases/download/v0.7.1/MCP.Hub_0.7.1_x64-setup.exe)，
+或 [GUI 免安装 ZIP](https://github.com/rshun/mcpconfig/releases/download/v0.7.1/MCP.Hub_0.7.1_windows-x64-portable.zip)。
 ZIP 完整解压后运行 `MCP.Hub.exe`；它使用系统已有的 [Microsoft WebView2 Runtime](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)，缺少时需先安装运行时。
 配置与备份仍使用用户目录，详见 [免安装说明](docs/WINDOWS-PORTABLE.txt)。`mcp-hub-cli-v*-windows-x64.zip` 是独立 CLI 包。
 
-macOS（Apple Silicon）用户可下载 [GUI 安装包](https://github.com/rshun/mcpconfig/releases/download/v0.7.0/MCP.Hub_0.7.0_macos-arm64.dmg)，即 `MCP.Hub_<版本>_macos-arm64.dmg`（v0.4.2 及更早为 `MCP.Hub_<版本>_aarch64.dmg`），
+macOS（Apple Silicon）用户可下载 [GUI 安装包](https://github.com/rshun/mcpconfig/releases/download/v0.7.1/MCP.Hub_0.7.1_macos-arm64.dmg)，即 `MCP.Hub_<版本>_macos-arm64.dmg`（v0.4.2 及更早为 `MCP.Hub_<版本>_aarch64.dmg`），
 打开后把 **MCP Hub** 拖入「应用程序」。`mcp-hub-cli-*` / `mcp-hub-v*-macos-arm64.tar.gz` 是命令行包，解压后双击会打开终端。
 从 v0.4.3 起 macOS 应用使用 ad-hoc 签名（非 Apple 开发者证书、未公证），首次打开会提示“无法验证开发者”：
 点「完成」后到「系统设置 → 隐私与安全性」点「仍要打开」，之后可直接启动，无需执行 `xattr`。
