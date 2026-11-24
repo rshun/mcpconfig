@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
-import { ACCENT_PRESETS, FONT_PRESETS, type AccentId, type FontId, type ThemeMode } from "../theme";
+import { ACCENT_PRESETS, FONT_PRESETS, SURFACE_STYLE_PRESETS, type AccentId, type FontId, type SurfaceStyleId, type ThemeMode } from "../theme";
 import type { GuiSettings } from "../types";
 import { Icon } from "../components/Icon";
 import { Banner, Field } from "../components/ui";
@@ -12,9 +12,11 @@ export function SettingsPage({
   theme = "light",
   accent = "ocean",
   font = "wenkai",
+  surfaceStyle = "3d",
   onThemeChange,
   onAccentChange,
   onFontChange,
+  onSurfaceStyleChange,
   onSave,
   onDirty,
   onBusy,
@@ -24,9 +26,11 @@ export function SettingsPage({
   theme?: ThemeMode;
   accent?: AccentId;
   font?: FontId;
+  surfaceStyle?: SurfaceStyleId;
   onThemeChange?: (next: ThemeMode) => void;
   onAccentChange?: (next: AccentId) => void;
   onFontChange?: (next: FontId) => void;
+  onSurfaceStyleChange?: (next: SurfaceStyleId) => void;
   onSave: (settings: GuiSettings) => Promise<void>;
   onDirty: (dirty: boolean) => void;
   onBusy: (busy: boolean) => void;
@@ -207,7 +211,7 @@ export function SettingsPage({
 
       {onThemeChange && onAccentChange && (
         <div className="panel settings-panel">
-          <div className="panel-head">外观与字体</div>
+          <div className="panel-head">外观与样式</div>
           <div className="panel-body">
             <Field label="明暗外观">
               <div className="theme-mode-switch settings-mode-switch">
@@ -246,6 +250,29 @@ export function SettingsPage({
                         aria-hidden="true"
                       >
                         {item.sample}
+                      </span>
+                      <span>
+                        <b>{item.label}</b>
+                        <small>{item.desc}</small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </Field>
+            )}
+            {onSurfaceStyleChange && (
+              <Field label="按钮质感">
+                <div className="settings-font-grid settings-style-grid">
+                  {SURFACE_STYLE_PRESETS.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`settings-font-card settings-style-card${surfaceStyle === item.id ? " active" : ""}`}
+                      onClick={() => onSurfaceStyleChange(item.id)}
+                      aria-pressed={surfaceStyle === item.id}
+                    >
+                      <span className="style-sample" aria-hidden="true">
+                        <span className="style-sample-pill" data-style-preview={item.id} />
                       </span>
                       <span>
                         <b>{item.label}</b>

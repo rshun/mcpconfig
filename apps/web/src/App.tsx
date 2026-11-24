@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, isMock } from "./api";
 import { selectionFromCells } from "./selection";
 import { fileName } from "./library";
-import { ACCENT_PRESETS, FONT_PRESETS, readInitialAccent, readInitialFont, readInitialTheme, type AccentId, type FontId, type ThemeMode } from "./theme";
+import { ACCENT_PRESETS, FONT_PRESETS, SURFACE_STYLE_PRESETS, readInitialAccent, readInitialFont, readInitialSurfaceStyle, readInitialTheme, type AccentId, type FontId, type SurfaceStyleId, type ThemeMode } from "./theme";
 import type { AppInfoDto, BackupDto, CatalogDto, ClientDto, GuiSettings, MatrixDto, McpSelection, MergeMode, PlanDto, PlanInput, ReceiptDto, Scope } from "./types";
 import type { Entry } from "./pages/Catalog";
 import { MatrixPage } from "./pages/Matrix";
@@ -60,6 +60,7 @@ export default function App() {
   const [theme, setTheme] = useState<ThemeMode>(readInitialTheme);
   const [accent, setAccent] = useState<AccentId>(readInitialAccent);
   const [font, setFont] = useState<FontId>(readInitialFont);
+  const [surfaceStyle, setSurfaceStyle] = useState<SurfaceStyleId>(readInitialSurfaceStyle);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const paletteRef = useRef<HTMLDivElement | null>(null);
 
@@ -75,6 +76,10 @@ export default function App() {
     document.documentElement.dataset.font = font;
     try { localStorage.setItem("mcp-hub-font", font); } catch { /* ignore */ }
   }, [font]);
+  useEffect(() => {
+    document.documentElement.dataset.style = surfaceStyle;
+    try { localStorage.setItem("mcp-hub-style", surfaceStyle); } catch { /* ignore */ }
+  }, [surfaceStyle]);
   useEffect(() => {
     if (!paletteOpen) return;
     const onPointerDown = (event: MouseEvent) => {
@@ -340,6 +345,22 @@ export default function App() {
               </div>
             </div>
             <div className="theme-popover-section">
+              <span className="theme-popover-title">按钮质感</span>
+              <div className="theme-mode-switch">
+                {SURFACE_STYLE_PRESETS.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`theme-mode-btn${surfaceStyle === item.id ? " active" : ""}`}
+                    onClick={() => setSurfaceStyle(item.id)}
+                    aria-pressed={surfaceStyle === item.id}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="theme-popover-section">
               <span className="theme-popover-title">主题色调</span>
               <div className="accent-grid">
                 {ACCENT_PRESETS.map((item) => (
@@ -385,7 +406,7 @@ export default function App() {
         setWriting(true); setFeedback(null); try { const restored = await api.restore(id); await refresh(catalogPath, scope, projectRoot); await loadBackups(); setReceipt(null); setFeedback({ tone: "ok", text: `已恢复 ${restored} 个文件，请在目标 Agent 中核对配置。` }); }
         catch (e) { setFeedback({ tone: "danger", text: String(e) }); } finally { setWriting(false); }
       }} />}
-      {page === "settings" && settings && <SettingsPage key={settingsValid ? "valid" : "recovery"} settings={settings} dataDir={info?.dataDir ?? "~/.mcp-hub"} theme={theme} accent={accent} font={font} onThemeChange={setTheme} onAccentChange={setAccent} onFontChange={setFont} onDirty={setDirty} onBusy={setWriting} onSave={async (value) => {
+      {page === "settings" && settings && <SettingsPage key={settingsValid ? "valid" : "recovery"} settings={settings} dataDir={info?.dataDir ?? "~/.mcp-hub"} theme={theme} accent={accent} font={font} surfaceStyle={surfaceStyle} onThemeChange={setTheme} onAccentChange={setAccent} onFontChange={setFont} onSurfaceStyleChange={setSurfaceStyle} onDirty={setDirty} onBusy={setWriting} onSave={async (value) => {
         const warnings = await api.saveSettings(value); setSettings(value); setSettingsValid(true); setDirty(false); invalidatePlan();
         if (!settingsValid) { setCatalogPath(value.catalogPath); setScope(value.defaultScope); setProject(value.lastProjectDir); setMode(value.defaultMode); await refresh(value.catalogPath, value.defaultScope, value.lastProjectDir); }
         await loadBackups(); setFeedback({ tone: warnings.length ? "warn" : "ok", text: warnings.length ? warnings.join("；") : "设置已保存。默认配置库、范围和写入策略将在下次启动时使用；当前工作范围保持不变。" });

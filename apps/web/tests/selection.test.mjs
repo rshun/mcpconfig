@@ -338,7 +338,7 @@ test('移除配置（removals）与握手自检（probe_entry）IPC 契约完整
   assert.ok(Array.isArray(probe.tools) && probe.tools.length > 0);
 });
 
-const { FONT_PRESETS, isFontId, readInitialFont } = await import('../src/theme.ts');
+const { FONT_PRESETS, isFontId, readInitialFont, SURFACE_STYLE_PRESETS, isSurfaceStyleId, readInitialSurfaceStyle } = await import('../src/theme.ts');
 
 test('字体预设默认使用温润文楷，支持 URL 参数与 localStorage 覆盖', () => {
   assert.deepEqual(FONT_PRESETS.map((item) => item.id), ['wenkai', 'sans']);
@@ -372,6 +372,45 @@ test('字体预设默认使用温润文楷，支持 URL 参数与 localStorage �
     store.set('mcp-hub-font', 'sans');
     globalThis.window.location.search = '?font=wenkai';
     assert.equal(readInitialFont(), 'wenkai');
+  } finally {
+    globalThis.window.location.search = prevSearch;
+    if (hasStorage) globalThis.localStorage = prevStorage;
+    else delete globalThis.localStorage;
+  }
+});
+
+test('按钮质感默认使用立体 3D，支持 URL 参数与 localStorage 覆盖', () => {
+  assert.deepEqual(SURFACE_STYLE_PRESETS.map((item) => item.id), ['3d', 'flat']);
+  assert.equal(isSurfaceStyleId('3d'), true);
+  assert.equal(isSurfaceStyleId('flat'), true);
+  assert.equal(isSurfaceStyleId('other'), false);
+  assert.equal(isSurfaceStyleId(null), false);
+
+  const prevSearch = globalThis.window.location.search;
+  const hasStorage = Object.prototype.hasOwnProperty.call(globalThis, 'localStorage');
+  const prevStorage = globalThis.localStorage;
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, String(value)),
+  };
+
+  try {
+    globalThis.window.location.search = '';
+    assert.equal(readInitialSurfaceStyle(), '3d');
+
+    store.set('mcp-hub-style', 'flat');
+    assert.equal(readInitialSurfaceStyle(), 'flat');
+
+    store.set('mcp-hub-style', 'invalid-style');
+    assert.equal(readInitialSurfaceStyle(), '3d');
+
+    globalThis.window.location.search = '?style=flat';
+    assert.equal(readInitialSurfaceStyle(), 'flat');
+
+    store.set('mcp-hub-style', 'flat');
+    globalThis.window.location.search = '?style=3d';
+    assert.equal(readInitialSurfaceStyle(), '3d');
   } finally {
     globalThis.window.location.search = prevSearch;
     if (hasStorage) globalThis.localStorage = prevStorage;
