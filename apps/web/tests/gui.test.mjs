@@ -423,6 +423,13 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     assert.equal(await evaluate('JSON.parse(sessionStorage.getItem("fixtureSettings")).defaultScope'), 'user');
     await evaluate('window.rejectSettings = false'); await button('保存软件设置'); await has('设置已保存。默认配置库');
     assert.equal(await evaluate('document.querySelectorAll(".content .banner.ok").length'), 1, '成功提示只显示一次');
+    assert.equal(await evaluate('document.documentElement.dataset.font'), 'wenkai');
+    await evaluate('document.querySelector(".settings-font-card:last-child").click()');
+    assert.equal(await evaluate('document.documentElement.dataset.font'), 'sans');
+    assert.equal(await evaluate('localStorage.getItem("mcp-hub-font")'), 'sans');
+    await evaluate('document.querySelector(".settings-font-card:first-child").click()');
+    assert.equal(await evaluate('document.documentElement.dataset.font'), 'wenkai');
+    assert.equal(await evaluate('localStorage.getItem("mcp-hub-font")'), 'wenkai');
     await screenshot('software-settings');
     await click('我的 MCP'); assert.equal(await evaluate('document.querySelector("[aria-label=\\"配置范围\\"]").value'), 'user');
     await send('Page.reload', {}, sessionId); await ready();

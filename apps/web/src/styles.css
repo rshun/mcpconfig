@@ -1,8 +1,15 @@
 :root {
   color-scheme: light;
-  font-family: "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei UI", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  font-size: 14px;
-  font-synthesis: none;
+  --font-latin: "Plus Jakarta Sans", "Inter", "SF Pro Text", "Segoe UI Variable", "Segoe UI Variable Text", "Segoe UI", "Helvetica Neue";
+  --font-cjk-wenkai: "LXGW WenKai Screen", "LXGW WenKai GB Screen", "LXGW WenKai", "LXGW WenKai GB", "LXGW WenKai Lite", "PingFang SC", "HarmonyOS Sans SC", "MiSans", "Noto Sans SC", "Source Han Sans SC", "Hiragino Sans GB", "Microsoft YaHei UI";
+  --font-cjk-sans: "PingFang SC", "HarmonyOS Sans SC", "MiSans", "Noto Sans SC", "Source Han Sans SC", "Hiragino Sans GB", "Microsoft YaHei UI";
+  --font-wenkai: var(--font-latin), var(--font-cjk-wenkai), -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-sans: var(--font-latin), var(--font-cjk-sans), -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-family: var(--font-wenkai);
+  font-size: 14.5px;
+  font-synthesis: weight;
+  font-optical-sizing: auto;
+  text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
@@ -57,8 +64,17 @@
   --shadow-dialog: 0 28px 80px -16px rgba(15, 23, 42, 0.28), 0 4px 16px rgba(15, 23, 42, 0.08);
   --backdrop: rgba(15, 23, 42, 0.36);
 
-  --mono: "Cascadia Code", "JetBrains Mono", "SF Mono", Consolas, monospace;
+  --mono: "JetBrains Mono", "Cascadia Code", "Cascadia Mono", "SF Mono", "Maple Mono", Consolas, ui-monospace, monospace;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+[data-font="wenkai"] {
+  font-family: var(--font-wenkai);
+  font-size: 14.5px;
+}
+[data-font="sans"] {
+  font-family: var(--font-sans);
+  font-size: 14px;
 }
 
 [data-theme="dark"] {
@@ -362,12 +378,20 @@ h1, h2, h3, p { margin: 0; }
 h1 { font-size: 25px; line-height: 1.32; font-weight: 700; letter-spacing: -0.025em; color: var(--text); }
 h2 { font-size: 18px; font-weight: 650; letter-spacing: -0.015em; color: var(--text); }
 h3 { font-size: 14px; font-weight: 600; color: var(--text); }
-p { line-height: 1.65; }
+p { line-height: 1.7; }
 small { color: var(--text-3); }
-code, .mono, pre { font-family: var(--mono); }
+code, .mono, pre { font-family: var(--mono); font-variant-ligatures: none; }
 code { font-size: 12px; overflow-wrap: anywhere; }
 pre { font-size: 12px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
 svg { flex-shrink: 0; vertical-align: middle; }
+
+:root:not([data-font="sans"]) h1 { letter-spacing: -0.01em; }
+:root:not([data-font="sans"]) h2 { letter-spacing: -0.005em; }
+:root:not([data-font="sans"]) .brand { letter-spacing: -0.01em; }
+:root:not([data-font="sans"]) .sub,
+:root:not([data-font="sans"]) .entry-name small,
+:root:not([data-font="sans"]) .nav-item small,
+:root:not([data-font="sans"]) .muted { letter-spacing: 0.01em; }
 
 /* 隐藏生硬的全大写英文装饰眉标，保持中文界面清爽 */
 .eyebrow { display: none; }
@@ -712,6 +736,48 @@ input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px;
 }
 .settings-accent-card b { display: block; font-size: 12.5px; font-weight: 600; color: var(--text); }
 .settings-accent-card small { display: block; font-size: 11px; margin-top: 2px; color: var(--text-3); }
+.font-mode-btn[data-font-preview="wenkai"] { font-family: var(--font-wenkai); }
+.font-mode-btn[data-font-preview="sans"] { font-family: var(--font-sans); }
+.settings-font-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; max-width: 560px; }
+.settings-font-card {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  text-align: left;
+  transition: border-color 0.14s var(--ease), background 0.14s var(--ease);
+}
+.settings-font-card:hover { border-color: var(--accent-border); background: var(--surface-hover); }
+.settings-font-card.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.settings-font-card b { display: block; font-size: 13px; font-weight: 600; color: var(--text); }
+.settings-font-card small { display: block; font-size: 11px; margin-top: 2px; color: var(--text-3); }
+.font-sample {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 36px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.settings-font-card.active .font-sample {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+.font-sample[data-font-preview="wenkai"] { font-family: var(--font-wenkai); }
+.font-sample[data-font-preview="sans"] { font-family: var(--font-sans); }
 
 /* Agent 品牌色徽标 */
 .agent-badge {
@@ -1529,6 +1595,7 @@ table.matrix { border-collapse: collapse; width: 100%; font-size: 12px; }
   .topbar .icon-button { width: 32px; height: 32px; }
   .theme-popover { right: -36px; width: min(244px, calc(100vw - 24px)); }
   .settings-accent-grid { grid-template-columns: 1fr; }
+  .settings-font-grid { grid-template-columns: 1fr; }
   .workspace-context { flex-wrap: wrap; gap: 4px; }
   .scope-select { padding: 0 7px; height: 30px; max-width: 165px; font-size: 11px; }
   .project-button { font-size: 10px; padding: 3px 8px; max-width: 165px; height: 24px; }
