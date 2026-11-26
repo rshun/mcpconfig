@@ -141,7 +141,7 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
           case "scan_import": return { scanId: `scan-${window.testCalls.length}`, sourcePath: "C:/test/source/config.toml", catalogPath: args.catalogPath, catalogExists: true,
             items: [
               { name: "alpha", conflict: true, blocked: null, transport: "http", fields: [{ id: "/auth/token_env", label: "Bearer 凭据" }] },
-              { name: "new-mcp", conflict: false, blocked: null, transport: "stdio", fields: [] },
+              { name: "new-mcp", conflict: false, blocked: null, transport: "stdio", fields: [], ignoredFields: ["tools"] },
               { name: "unsupported", conflict: false, blocked: "包含无法无损转换的字段", transport: null, fields: [] },
             ] };
           case "preview_import": {
@@ -370,6 +370,7 @@ test("配置库优先 GUI：首次使用、逐对分发、编辑、导入与持�
     assert.equal(await evaluate('document.querySelector(".existing-config")'), null);
     await evaluate('window.failRead = false'); await click('查看 Codex CLI 配置'); await present('.existing-config');
     await button('导入到 MCP 库'); await importReady();
+    await has('将仅导入核心连接配置，忽略客户端专有字段：tools');
     assert.equal(await evaluate('document.querySelector("[aria-label=\\"选择导入 unsupported\\"]").disabled'), true);
     await button('取消导入'); await absent('dialog'); assert.equal(await count('commit_import'), 0);
     await button('导入到 MCP 库'); await importReady(); await click('选择导入 alpha');

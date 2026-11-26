@@ -308,3 +308,44 @@ fn env_order_stable() {
     let keys: Vec<&String> = v["env"].as_object().unwrap().keys().collect();
     assert_eq!(keys, vec!["A", "B"], "BTreeMap 保证顺序稳定");
 }
+
+#[test]
+fn codex_uses_http_headers_key() {
+    let mut e = McpEntry::new_http("svc", "https://example.invalid/mcp");
+    e.headers.insert("x-api-key".into(), "your_key_here".into());
+    let v = mcp_core::encode_entry("codex", &e).unwrap();
+    assert_eq!(v["http_headers"]["x-api-key"], "your_key_here");
+    assert!(v.get("headers").is_none());
+    let back = mcp_core::decode_entry("codex", "svc", &v).unwrap();
+    assert_eq!(
+        back.headers.get("x-api-key").map(String::as_str),
+        Some("your_key_here")
+    );
+}
+
+#[test]
+fn workbuddy_and_cline_support_disabled_and_description() {
+    for id in ["workbuddy", "cline"] {
+        let mut e = http_entry();
+        e.enabled = false;
+        let v = mcp_core::encode_entry(id, &e).unwrap();
+        assert_eq!(v["disabled"], true, "{id} 禁用应写 disabled: true");
+        let back = mcp_core::decode_entry(id, "github", &v).unwrap();
+        assert!(!back.enabled, "{id} 应解码 disabled: true");
+
+        let mut on = http_entry();
+        on.enabled = true;
+        let v_on = mcp_core::encode_entry(id, &on).unwrap();
+        assert!(v_on.get("disabled").is_none(), "{id} 启用时不应写 disabled");
+
+        let raw = serde_json::json!({
+            "type": "http",
+            "url": "https://example.invalid/mcp",
+            "description": "示例服务说明",
+            "disabled": false
+        });
+        let decoded = mcp_core::decode_entry(id, "demo", &raw).unwrap();
+        assert!(decoded.enabled);
+        assert_eq!(decoded.description.as_deref(), Some("示例服务说明"));
+    }
+}

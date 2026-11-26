@@ -39,6 +39,7 @@ Antigravity 官方明确：**远程服务器必须使用 Streamable HTTP，`serv
 | 根键 | `mcpServers` | [实测] |
 | stdio | `{command, args[], cwd, env}` | [实测] |
 | remote | `{type:"http", url, headers}` | [实测] |
+| 其他 | `disabled`（语义取反）、`description`（导入支持） | [实测] |
 
 `cwd` 字段是 WorkBuddy 特有，其他 Agent 未必支持 —— `supports_cwd` 按适配器声明。
 
@@ -72,7 +73,7 @@ Antigravity 官方明确：**远程服务器必须使用 Streamable HTTP，`serv
 | 格式 | **TOML** | [实测] |
 | 根键 | `[mcp_servers.<name>]` | [实测] |
 | stdio | `command`, `args[]`, `env{}`, `env_vars[]`, `cwd` | [官方] |
-| remote | `url`, `bearer_token_env_var`, `http_headers{}`, `env_http_headers{}`, `auth="oauth"` | [官方] |
+| remote | `url`, `bearer_token_env_var`, `http_headers{}`（双向映射为 `headers`）, `env_http_headers{}`, `auth="oauth"` | [官方] |
 | 其他 | `startup_timeout_sec`, `tool_timeout_sec`, `enabled`, `enabled_tools[]`, `disabled_tools[]` | [官方] |
 
 **必须用 `toml_edit` 而非 `toml` crate** —— 实测本机 `~/.codex/config.toml` 含大量注释、`[marketplaces.*]`、`[plugins.*]`、`[shell_environment_policy.set]` 等无关段落，用 `toml` 序列化会全部丢失。
