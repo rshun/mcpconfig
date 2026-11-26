@@ -336,7 +336,11 @@ fn bindings_are_complete_strict_and_never_read_process_env_values() {
 #[test]
 fn unknown_malformed_or_lossy_fields_are_blocked_individually() {
     let bad = [
-        json!({"command":"python","custom":SECRET}),
+        json!({"command":"python","apiKey":SECRET}),
+        json!({"command":"python","custom":format!("Bearer {SECRET}")}),
+        json!({"url":"https://example.invalid/mcp","env_http_headers":{"X-Api-Key":"API_KEY_ENV"}}),
+        json!({"url":"https://example.invalid/mcp","headers":{"X-A":"1"},"http_headers":{"X-B":"2"}}),
+        json!({"command":"python","enabled":true,"disabled":false}),
         json!({"command":"python","args":["safe",123]}),
         json!({"command":"python","env":{"PASSWORD":123}}),
         json!({"command":"python","env":{},"environment":{}}),
@@ -1185,4 +1189,145 @@ fn each_credential_field_needs_exactly_one_choice() {
 
     assert!(sessions.preview(&app, &scan.scan_id, &[valid]).is_ok());
     assert!(!target.exists());
+}
+
+#[test]
+fn codex_and_workbuddy_real_world_configs_and_ignored_fields_import_safely() {
+    let (app, target) = fixture(Platform::current());
+    source(
+        &app,
+        adapters::by_id("codex").unwrap(),
+        Scope::User,
+        &[
+            (
+                "sellerspace",
+                json!({
+                    "enabled": true,
+                    "url": "https://example.invalid/mcp/",
+                    "http_headers": { "x-api-key": SECRET },
+                    "tools": {
+                        "listing": { "approval_mode": "approve" },
+                        "apply_change_plan": { "approval_mode": "approve" }
+                    }
+                }),
+            ),
+            (
+                "non-sensitive-extra",
+                json!({ "command": "python", "custom": SECRET }),
+            ),
+        ],
+    );
+    let mut sessions = ImportSessions::default();
+    let scan = sessions.scan(&app, &target, "codex", Scope::User).unwrap();
+    assert!(!serde_json::to_string(&scan).unwrap().contains(SECRET));
+    let ss = scan.items.iter().find(|i| i.name == "sellerspace").unwrap();
+    assert_eq!(ss.blocked, None);
+    assert_eq!(ss.ignored_fields, vec!["tools"]);
+    assert_eq!(
+        ss.fields.iter().map(|f| f.id.as_str()).collect::<Vec<_>>(),
+        vec!["/headers/x-api-key"]
+    );
+    let extra = scan
+        .items
+        .iter()
+        .find(|i| i.name == "non-sensitive-extra")
+        .unwrap();
+    assert_eq!(extra.blocked, None);
+    assert_eq!(extra.ignored_fields, vec!["custom"]);
+
+    let preview = sessions
+        .preview(
+            &app,
+            &scan.scan_id,
+            &[
+                choice(&scan, "sellerspace", ImportAction::Add, "sellerspace"),
+                choice(
+                    &scan,
+                    "non-sensitive-extra",
+                    ImportAction::Add,
+                    "non-sensitive-extra",
+                ),
+            ],
+        )
+        .unwrap();
+    assert!(!serde_json::to_string(&preview).unwrap().contains(SECRET));
+    sessions.commit(&app, &preview.preview_id).unwrap();
+    let (catalog, _) = app.load_catalog(&target).unwrap();
+    assert!(!serde_json::to_string(&catalog).unwrap().contains(SECRET));
+    let imported_ss = catalog
+        .entries
+        .iter()
+        .find(|e| e.name == "sellerspace")
+        .unwrap();
+    assert!(imported_ss.enabled);
+    assert_eq!(imported_ss.headers["x-api-key"], "${ENV:IMPORT_VALUE_0}");
+    let reencoded = mcp_core::encode_entry("codex", imported_ss).unwrap();
+    assert_eq!(
+        reencoded["http_headers"]["x-api-key"],
+        "${ENV:IMPORT_VALUE_0}"
+    );
+
+    // WorkBuddy: description + disabled:false/true + headers
+    source(
+        &app,
+        adapters::by_id("workbuddy").unwrap(),
+        Scope::User,
+        &[
+            (
+                "wb-enabled",
+                json!({
+                    "type": "http",
+                    "url": "https://example.invalid/mcp/",
+                    "headers": { "x-api-key": SECRET },
+                    "description": "示例 MCP 服务（默认只读）",
+                    "disabled": false
+                }),
+            ),
+            (
+                "wb-disabled",
+                json!({
+                    "type": "http",
+                    "url": "https://example.invalid/disabled/",
+                    "disabled": true
+                }),
+            ),
+        ],
+    );
+    let scan_wb = sessions
+        .scan(&app, &target, "workbuddy", Scope::User)
+        .unwrap();
+    assert!(!serde_json::to_string(&scan_wb).unwrap().contains(SECRET));
+    assert!(scan_wb
+        .items
+        .iter()
+        .all(|i| i.blocked.is_none() && i.ignored_fields.is_empty()));
+    let preview_wb = sessions
+        .preview(
+            &app,
+            &scan_wb.scan_id,
+            &[
+                choice(&scan_wb, "wb-enabled", ImportAction::Add, "wb-enabled"),
+                choice(&scan_wb, "wb-disabled", ImportAction::Add, "wb-disabled"),
+            ],
+        )
+        .unwrap();
+    assert!(!serde_json::to_string(&preview_wb).unwrap().contains(SECRET));
+    sessions.commit(&app, &preview_wb.preview_id).unwrap();
+    let (catalog, _) = app.load_catalog(&target).unwrap();
+    let wb_on = catalog
+        .entries
+        .iter()
+        .find(|e| e.name == "wb-enabled")
+        .unwrap();
+    assert!(wb_on.enabled);
+    assert_eq!(
+        wb_on.description.as_deref(),
+        Some("示例 MCP 服务（默认只读）")
+    );
+    let wb_off = catalog
+        .entries
+        .iter()
+        .find(|e| e.name == "wb-disabled")
+        .unwrap();
+    assert!(!wb_off.enabled);
 }

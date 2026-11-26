@@ -78,6 +78,7 @@ pub struct AdapterSpec {
     pub entry_style: EntryStyle,
     pub env_key: Cow<'static, str>,
     pub remote_url_key: Cow<'static, str>,
+    pub headers_key: Cow<'static, str>,
     pub type_field: Option<Cow<'static, str>>,
     /// stdio 时 type 字段的取值（例如 OpenCode 用 `"local"`）
     pub stdio_type_value: Option<Cow<'static, str>>,
@@ -115,7 +116,9 @@ pub const RESERVED_EXTENSION_KEYS: &[&str] = &[
     "url",
     "serverUrl",
     "headers",
+    "http_headers",
     "type",
+    "description",
     "enabled",
     "disabled",
     "bearer_token_env_var",
@@ -222,6 +225,7 @@ fn apply_extensions(
                 if is_reserved_extension_key(k)
                     || k == spec.env_key.as_ref()
                     || k == spec.remote_url_key.as_ref()
+                    || k == spec.headers_key.as_ref()
                     || spec.type_field.as_deref() == Some(k.as_str())
                     || spec.timeout_field.as_deref() == Some(k.as_str())
                 {
@@ -297,10 +301,7 @@ pub fn generic_encode_checked(spec: &AdapterSpec, entry: &McpEntry) -> Result<En
 
     match entry.transport_spec()? {
         TransportSpec::Remote(remote) => {
-            obj.insert(
-                spec.remote_url_key.to_string(),
-                Value::String(remote.url),
-            );
+            obj.insert(spec.remote_url_key.to_string(), Value::String(remote.url));
 
             if let Some(field) = &spec.type_field {
                 let value = spec
@@ -384,7 +385,10 @@ pub fn generic_encode_checked(spec: &AdapterSpec, entry: &McpEntry) -> Result<En
                 }
                 (_, SecretSource::EnvRef(name)) => {
                     unresolved_inline_secrets.push(name.clone());
-                    headers.insert(header.clone(), format!("{pfx}{}", blocked_placeholder(name)));
+                    headers.insert(
+                        header.clone(),
+                        format!("{pfx}{}", blocked_placeholder(name)),
+                    );
                 }
                 (_, SecretSource::Literal(v)) => {
                     headers.insert(header.clone(), format!("{pfx}{v}"));
@@ -394,7 +398,7 @@ pub fn generic_encode_checked(spec: &AdapterSpec, entry: &McpEntry) -> Result<En
         None => {}
     }
     if !headers.is_empty() {
-        obj.insert("headers".into(), json!(headers));
+        obj.insert(spec.headers_key.to_string(), json!(headers));
     }
 
     match spec.enabled_key {
@@ -471,6 +475,7 @@ pub fn generic_decode(spec: &AdapterSpec, name: &str, value: &Value) -> Result<M
         .or_else(|| str_of(obj, "serverUrl"));
 
     let mut entry = McpEntry::new_stdio(name, "", Vec::new());
+    entry.description = str_of(obj, "description").filter(|s| !s.trim().is_empty());
 
     if let Some(url) = url {
         entry.transport = match str_of(obj, "type").as_deref() {
@@ -525,33 +530,42 @@ pub fn generic_decode(spec: &AdapterSpec, name: &str, value: &Value) -> Result<M
     }
 
     // 开关
-    match spec.enabled_key {
-        EnabledKey::None => entry.enabled = true,
-        EnabledKey::Enabled => {
-            entry.enabled = obj.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true)
-        }
-        EnabledKey::Disabled => {
-            entry.enabled = !obj
-                .get("disabled")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-        }
-    }
+    entry.enabled = match spec.enabled_key {
+        EnabledKey::Enabled => obj
+            .get("enabled")
+            .and_then(|v| v.as_bool())
+            .or_else(|| obj.get("disabled").and_then(|v| v.as_bool()).map(|d| !d))
+            .unwrap_or(true),
+        EnabledKey::Disabled => obj
+            .get("disabled")
+            .and_then(|v| v.as_bool())
+            .map(|d| !d)
+            .or_else(|| obj.get("enabled").and_then(|v| v.as_bool()))
+            .unwrap_or(true),
+        EnabledKey::None => obj
+            .get("enabled")
+            .and_then(|v| v.as_bool())
+            .or_else(|| obj.get("disabled").and_then(|v| v.as_bool()).map(|d| !d))
+            .unwrap_or(true),
+    };
 
     // 认证：先收集普通 headers（Authorization 归一为 auth），再按原生字段覆盖
-    if let Some(Value::Object(m)) = obj.get("headers") {
-        let mut headers: BTreeMap<String, String> = BTreeMap::new();
-        for (k, v) in m {
-            let Some(val) = v.as_str() else { continue };
-            if k.eq_ignore_ascii_case("authorization") {
-                if let Some(token) = parse_bearer_header(val) {
-                    entry.auth = Some(Auth::Bearer { token });
+    for key in [spec.headers_key.as_ref(), "headers", "http_headers"] {
+        if let Some(Value::Object(m)) = obj.get(key) {
+            let mut headers: BTreeMap<String, String> = BTreeMap::new();
+            for (k, v) in m {
+                let Some(val) = v.as_str() else { continue };
+                if k.eq_ignore_ascii_case("authorization") {
+                    if let Some(token) = parse_bearer_header(val) {
+                        entry.auth = Some(Auth::Bearer { token });
+                    }
+                    continue;
                 }
-                continue;
+                headers.insert(k.clone(), val.to_string());
             }
-            headers.insert(k.clone(), val.to_string());
+            entry.headers = headers;
+            break;
         }
-        entry.headers = headers;
     }
     if let Some(env_name) = str_of(obj, "bearer_token_env_var") {
         entry.auth = Some(Auth::Bearer {
@@ -660,6 +674,8 @@ struct CustomAdapterDef {
     env_key: String,
     #[serde(default = "default_remote_url_key")]
     remote_url_key: String,
+    #[serde(default = "default_headers_key")]
+    headers_key: String,
     #[serde(default)]
     type_field: Option<String>,
     #[serde(default)]
@@ -691,6 +707,9 @@ fn default_env_key() -> String {
 }
 fn default_remote_url_key() -> String {
     "url".to_string()
+}
+fn default_headers_key() -> String {
+    "headers".to_string()
 }
 fn default_enabled_key() -> EnabledKey {
     EnabledKey::None
@@ -864,6 +883,7 @@ pub fn parse_custom_adapters(src: &str) -> Result<Vec<CustomAdapter>> {
             entry_style: def.entry_style,
             env_key: Cow::Owned(def.env_key),
             remote_url_key: Cow::Owned(def.remote_url_key),
+            headers_key: Cow::Owned(def.headers_key),
             type_field: def.type_field.map(Cow::Owned),
             stdio_type_value: def.stdio_type_value.map(Cow::Owned),
             remote_type_value: def.remote_type_value.map(Cow::Owned),

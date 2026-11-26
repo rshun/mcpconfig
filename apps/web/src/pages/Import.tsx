@@ -104,6 +104,11 @@ export function ImportPanel({ clientId, catalogPath, scope, projectRoot, onClose
             <div className="import-item-head"><label><input type="checkbox" aria-label={`选择导入 ${item.name}`}
               disabled={!!item.blocked} checked={draft.selected} onChange={(e) => patch(item.name, { selected: e.target.checked })} /> <b>{item.name}</b></label>
               <span className={`pill ${item.conflict ? "warn" : "plain"}`}>{item.conflict ? "配置库已有同名项" : item.transport ?? "无法转换"}</span></div>
+            {!item.blocked && (item.ignoredFields?.length ?? 0) > 0 && (
+              <p className="import-ignore-note warning-text">
+                将仅导入核心连接配置，忽略客户端专有字段：{item.ignoredFields!.join("、")}
+              </p>
+            )}
             {item.blocked ? <p className="muted">不能自动导入：{item.blocked}</p> : draft.selected && <>
               <div className="import-options"><label>同名处理 <select className="select" aria-label={`处理方式 ${item.name}`} value={draft.action}
                 onChange={(e) => { const action = e.target.value as ImportAction; patch(item.name, { action, targetName: action === "rename" ? "" : item.name }); }}>
@@ -129,11 +134,15 @@ export function ImportPanel({ clientId, catalogPath, scope, projectRoot, onClose
       {preview && <div ref={previewRef} className="import-preview" aria-label="导入差异预览">
         <h2>将导入 {preview.changes.length} 项</h2>
         <div className="source-path"><span>本次保存到</span><code>{preview.catalogPath}</code></div>
-        {preview.changes.map((change) => <details key={change.targetName} open>
-          <summary>{LABEL[change.action]} · {change.sourceName} → {change.targetName}</summary>
-          {change.before !== null && <><h4>原条目（凭据已隐藏）</h4><pre>{JSON.stringify(change.before, null, 2)}</pre></>}
-          <h4>导入后（凭据已隐藏；原样复制的值按原文写入）</h4><pre>{JSON.stringify(change.after, null, 2)}</pre>
-        </details>)}
+        {preview.changes.map((change) => {
+          const ignoredFields = scan?.items.find((i) => i.name === change.sourceName)?.ignoredFields ?? [];
+          return <details key={change.targetName} open>
+            <summary>{LABEL[change.action]} · {change.sourceName} → {change.targetName}</summary>
+            {ignoredFields.length > 0 && <p className="import-ignore-note warning-text">将忽略客户端专有字段：{ignoredFields.join("、")}</p>}
+            {change.before !== null && <><h4>原条目（凭据已隐藏）</h4><pre>{JSON.stringify(change.before, null, 2)}</pre></>}
+            <h4>导入后（凭据已隐藏；原样复制的值按原文写入）</h4><pre>{JSON.stringify(change.after, null, 2)}</pre>
+          </details>;
+        })}
         {replacing && <Banner tone="warn"><label><input type="checkbox" checked={acknowledged} onChange={(e) => setAcknowledged(e.target.checked)} />
           我确认替换所列同名条目的全部字段，包括原有平台覆盖；写入前保留原文备份。</label></Banner>}
         <button className="btn primary" disabled={committing || busy || (replacing && !acknowledged)} onClick={commit}>{committing ? "导入中…" : "确认导入配置库"}</button>

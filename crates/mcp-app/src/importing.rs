@@ -1,7 +1,7 @@
 //! Agent → 配置库：原文留在后端，预览绑定两端快照；凭据字段可映射为环境变量，或按用户选择原样复制。
 use crate::{App, AppError};
 use mcp_core::{
-    adapters::{self, Adapter, EnabledKey, EntryStyle},
+    adapters::{self, Adapter, EntryStyle},
     catalog,
     document::ConfigDoc,
     model::{Auth, Catalog, McpEntry, Platform, Scope, SecretSource},
@@ -37,6 +37,8 @@ pub struct ImportItem {
     pub conflict: bool,
     pub blocked: Option<String>,
     pub fields: Vec<ImportField>,
+    #[serde(default)]
+    pub ignored_fields: Vec<String>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -156,7 +158,9 @@ impl ImportSessions {
             return Err(fail("导入配置库必须使用绝对路径"));
         }
         let adapter_set = app.adapter_set()?;
-        let adapter = adapter_set.by_id(client).ok_or_else(|| fail("未知 Agent"))?;
+        let adapter = adapter_set
+            .by_id(client)
+            .ok_or_else(|| fail("未知 Agent"))?;
         if let Some(reason) = app.check_scope_block(adapter, scope) {
             return Err(fail(&reason));
         }
@@ -209,13 +213,14 @@ impl ImportSessions {
         for (name, raw) in entries {
             let conflict = catalog.entries.iter().any(|entry| entry.name == name);
             let (item, safe) = match convert(adapter, &name, &raw, scope) {
-                Ok((safe, fields, originals)) => (
+                Ok((safe, fields, originals, ignored_fields)) => (
                     ImportItem {
                         name,
                         conflict,
                         transport: safe["transport"].as_str().map(str::to_string),
                         blocked: None,
                         fields,
+                        ignored_fields,
                     },
                     Some(Converted { safe, originals }),
                 ),
@@ -226,6 +231,7 @@ impl ImportSessions {
                         transport: None,
                         blocked: Some(reason.into()),
                         fields: Vec::new(),
+                        ignored_fields: Vec::new(),
                     },
                     None,
                 ),
@@ -578,7 +584,12 @@ fn pointer_key(key: &str) -> String {
     key.replace('~', "~0").replace('/', "~1")
 }
 
-type ConvertedParts = (Value, Vec<ImportField>, BTreeMap<String, (Value, Value)>);
+type ConvertedParts = (
+    Value,
+    Vec<ImportField>,
+    BTreeMap<String, (Value, Value)>,
+    Vec<String>,
+);
 
 fn convert(
     adapter: &dyn Adapter,
@@ -586,7 +597,7 @@ fn convert(
     raw: &Value,
     scope: Scope,
 ) -> Result<ConvertedParts, &'static str> {
-    strict(adapter, raw)?;
+    let ignored_fields = strict(adapter, raw)?;
     let mut entry = adapter
         .decode_entry(name, raw)
         .map_err(|_| "无法转换来源条目")?;
@@ -618,13 +629,18 @@ fn convert(
         });
     }
     let shown = mcp_core::redact::config_entry(&safe);
-    for key in ["command", "cwd", "url"] {
+    for (key, label) in [
+        ("command", "command"),
+        ("cwd", "cwd"),
+        ("url", "url"),
+        ("description", "描述"),
+    ] {
         if let Some(value) = safe.get_mut(key) {
             field(
                 value,
                 &shown[key],
                 format!("/{key}"),
-                key.into(),
+                label.into(),
                 None,
                 &mut fields,
                 &mut originals,
@@ -660,11 +676,11 @@ fn convert(
             }
         }
     }
-    Ok((safe, fields, originals))
+    Ok((safe, fields, originals, ignored_fields))
 }
 
-/// 通用解码器容许读旧配置；导入必须额外拒绝丢字段、类型过滤和有歧义的别名。
-fn strict(adapter: &dyn Adapter, raw: &Value) -> Result<(), &'static str> {
+/// 通用解码器容许读旧配置；导入必须额外拒绝结构错误、歧义别名与含疑密字段，同时对非敏感未知扩展字段降级为显式忽略。
+fn strict(adapter: &dyn Adapter, raw: &Value) -> Result<Vec<String>, &'static str> {
     let obj = raw.as_object().ok_or("来源条目不是对象")?;
     let spec = adapter.spec();
     let mut allowed = vec![
@@ -676,20 +692,61 @@ fn strict(adapter: &dyn Adapter, raw: &Value) -> Result<(), &'static str> {
         "env",
         "environment",
         "headers",
+        "http_headers",
         "type",
         "bearer_token_env_var",
+        "description",
+        "enabled",
+        "disabled",
+        spec.env_key.as_ref(),
+        spec.remote_url_key.as_ref(),
+        spec.headers_key.as_ref(),
     ];
     allowed.extend_from_slice(adapters::KNOWN_CLIENT_EXTENSION_KEYS);
+    if let Some(key) = spec.type_field.as_deref() {
+        allowed.push(key);
+    }
     if let Some(key) = spec.timeout_field.as_deref() {
         allowed.push(key);
     }
-    match spec.enabled_key {
-        EnabledKey::Enabled => allowed.push("enabled"),
-        EnabledKey::Disabled => allowed.push("disabled"),
-        _ => {}
+    let mut unknown_keys: Vec<String> = obj
+        .keys()
+        .filter(|k| !allowed.contains(&k.as_str()))
+        .cloned()
+        .collect();
+    unknown_keys.sort();
+    if !unknown_keys.is_empty() {
+        for k in &unknown_keys {
+            if k.trim().is_empty()
+                || k.len() > 64
+                || k.chars().any(|c| c.is_control() || c.is_whitespace())
+            {
+                return Err("包含无效的未知字段名，拒绝自动导入");
+            }
+            let lower = k.to_ascii_lowercase();
+            if lower.contains("header") || lower.contains("oauth") {
+                return Err("包含未适配的认证或请求头字段，不能自动忽略");
+            }
+            let key_probe = serde_json::json!({ k.as_str(): "probe_literal" });
+            if mcp_core::redact::config_entry(&key_probe)[k.as_str()] != "probe_literal" {
+                return Err("未知字段名疑似包含敏感凭据，拒绝忽略导入");
+            }
+            let name_probe = serde_json::json!({ "v": k.as_str() });
+            if mcp_core::redact::config_entry(&name_probe)["v"] != k.as_str() {
+                return Err("未知字段名疑似包含敏感凭据，拒绝忽略导入");
+            }
+        }
+        let unknown_map: serde_json::Map<String, Value> = unknown_keys
+            .iter()
+            .map(|k| (k.clone(), obj[k].clone()))
+            .collect();
+        let probe = Value::Object(unknown_map);
+        if mcp_core::redact::config_entry(&probe) != probe {
+            return Err("未知字段包含疑似敏感凭据，拒绝忽略导入");
+        }
     }
-    if obj.keys().any(|k| !allowed.contains(&k.as_str())) {
-        return Err("包含无法无损转换的字段，请手动整理后重试");
+    if obj.get("description").is_some_and(|v| !v.is_string()) {
+        return Err("描述字段必须是字符串");
     }
     for list_key in ["alwaysAllow", "autoApprove", "disabledTools"] {
         if let Some(v) = obj.get(list_key) {
@@ -711,20 +768,23 @@ fn strict(adapter: &dyn Adapter, raw: &Value) -> Result<(), &'static str> {
     {
         return Err("工具超时扩展字段类型无效");
     }
-    if ["url", "serverUrl"]
-        .iter()
-        .filter(|k| obj.contains_key(**k))
-        .count()
-        > 1
-        || ["env", "environment"]
-            .iter()
-            .filter(|k| obj.contains_key(**k))
-            .count()
-            > 1
+    let url_keys: BTreeSet<&str> = ["url", "serverUrl", spec.remote_url_key.as_ref()]
+        .into_iter()
+        .collect();
+    let env_keys: BTreeSet<&str> = ["env", "environment", spec.env_key.as_ref()]
+        .into_iter()
+        .collect();
+    let header_keys: BTreeSet<&str> = ["headers", "http_headers", spec.headers_key.as_ref()]
+        .into_iter()
+        .collect();
+    if url_keys.iter().filter(|k| obj.contains_key(**k)).count() > 1
+        || env_keys.iter().filter(|k| obj.contains_key(**k)).count() > 1
+        || header_keys.iter().filter(|k| obj.contains_key(**k)).count() > 1
+        || (obj.contains_key("enabled") && obj.contains_key("disabled"))
     {
         return Err("存在有歧义的字段别名");
     }
-    let remote = obj.contains_key("url") || obj.contains_key("serverUrl");
+    let remote = url_keys.iter().any(|k| obj.contains_key(*k));
     if remote
         && ["command", "args", "cwd"]
             .iter()
@@ -742,7 +802,7 @@ fn strict(adapter: &dyn Adapter, raw: &Value) -> Result<(), &'static str> {
             return Err("传输类型与来源字段不一致");
         }
     }
-    for key in ["url", "serverUrl", "cwd"] {
+    for key in url_keys.iter().copied().chain(["cwd"]) {
         if let Some(v) = obj.get(key) {
             if !v.as_str().is_some_and(|s| !s.trim().is_empty()) {
                 return Err("地址或工作目录类型无效");
@@ -767,13 +827,14 @@ fn strict(adapter: &dyn Adapter, raw: &Value) -> Result<(), &'static str> {
             return Err("参数必须全部为字符串，不能过滤或丢弃");
         }
     }
-    for key in ["env", "environment", "headers"] {
-        if let Some(value) = obj.get(key) {
+    for key in env_keys.iter().chain(header_keys.iter()) {
+        if let Some(value) = obj.get(*key) {
+            let is_header = header_keys.contains(key);
             let map = value.as_object().ok_or("环境变量或请求头必须是对象")?;
             if map.iter().any(|(name, value)| {
                 !value.is_string()
-                    || (key != "headers" && !env_name(name))
-                    || (key == "headers"
+                    || (!is_header && !env_name(name))
+                    || (is_header
                         && (name.is_empty()
                             || !name.chars().all(|c| {
                                 c.is_ascii_alphanumeric() || "!#$%&'*+-.^_`|~".contains(c)
@@ -783,9 +844,10 @@ fn strict(adapter: &dyn Adapter, raw: &Value) -> Result<(), &'static str> {
             }
         }
     }
-    let auth_headers = obj
-        .get("headers")
-        .and_then(Value::as_object)
+    let auth_headers = header_keys
+        .iter()
+        .filter_map(|key| obj.get(*key).and_then(Value::as_object))
+        .next()
         .map(|map| {
             map.iter()
                 .filter(|(k, _)| k.eq_ignore_ascii_case("authorization"))
@@ -815,10 +877,8 @@ fn strict(adapter: &dyn Adapter, raw: &Value) -> Result<(), &'static str> {
     {
         return Err("认证变量名无效");
     }
-    if obj
-        .get("enabled")
-        .or_else(|| obj.get("disabled"))
-        .is_some_and(|v| !v.is_boolean())
+    if obj.get("enabled").is_some_and(|v| !v.is_boolean())
+        || obj.get("disabled").is_some_and(|v| !v.is_boolean())
     {
         return Err("启用开关类型无效");
     }
@@ -830,7 +890,7 @@ fn strict(adapter: &dyn Adapter, raw: &Value) -> Result<(), &'static str> {
     {
         return Err("超时字段类型无效");
     }
-    Ok(())
+    Ok(unknown_keys)
 }
 
 #[cfg(test)]

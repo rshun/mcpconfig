@@ -70,7 +70,7 @@ export interface ImportScan {
   sourcePath: string;
   catalogPath: string;
   catalogExists: boolean;
-  items: { name: string; transport: string | null; conflict: boolean; blocked: string | null; fields: { id: string; label: string }[] }[];
+  items: { name: string; transport: string | null; conflict: boolean; blocked: string | null; fields: { id: string; label: string }[]; ignoredFields?: string[] }[];
 }
 export interface ImportPreview {
   previewId: string;

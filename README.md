@@ -1,10 +1,12 @@
 # MCP Hub
 
+**简体中文** | **[English](#english-guide)**
+
 多客户端 / 多环境 MCP 配置一键分发工具。
 
 把一份客户自维护的清单，按各客户端的原生格式写入 14 个 MCP 客户端——不用手工配 M×N×K 次。
 
-当前版本：**v0.7.2**。本版带来「精工微立体按键（Tactile 3D）」界面升级：主次按钮、侧栏切换卡、分段开关、拨动开关及各类交互卡片均具备顶部高光、实体立体底边与真实按压手感的微立体效果，同时在右上角调色盘与「软件设置 → 外观与样式」支持「立体 3D / 简约扁平」一键切换并自动记住偏好；零新增依赖、零安装包体积增量。使用及回退见 [发布说明](docs/releases/v0.7.2.md)。
+当前版本：**v0.7.3**。本版新增 Agent 导入分级校验与核心方言兼容（支持 Codex `http_headers` 双向映射、WorkBuddy/Cline `disabled` 与 `description` 导入，对非敏感专有字段如 Codex `tools` 显式提示后仅导核心配置），同时调薄精工微立体（Tactile 3D）视觉厚度，并补充 `README` 英文指南。使用及回退见 [发布说明](docs/releases/v0.7.3.md)。
 
 ## 现在的状态
 
@@ -54,12 +56,12 @@ cargo run -p mcp-io --example end_to_end
 
 ## 图形界面
 
-Windows 用户可下载 [GUI 安装程序](https://github.com/rshun/mcpconfig/releases/download/v0.7.2/MCP.Hub_0.7.2_x64-setup.exe)，
-或 [GUI 免安装 ZIP](https://github.com/rshun/mcpconfig/releases/download/v0.7.2/MCP.Hub_0.7.2_windows-x64-portable.zip)。
+Windows 用户可下载 [GUI 安装程序](https://github.com/rshun/mcpconfig/releases/download/v0.7.3/MCP.Hub_0.7.3_x64-setup.exe)，
+或 [GUI 免安装 ZIP](https://github.com/rshun/mcpconfig/releases/download/v0.7.3/MCP.Hub_0.7.3_windows-x64-portable.zip)。
 ZIP 完整解压后运行 `MCP.Hub.exe`；它使用系统已有的 [Microsoft WebView2 Runtime](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)，缺少时需先安装运行时。
 配置与备份仍使用用户目录，详见 [免安装说明](docs/WINDOWS-PORTABLE.txt)。`mcp-hub-cli-v*-windows-x64.zip` 是独立 CLI 包。
 
-macOS（Apple Silicon）用户可下载 [GUI 安装包](https://github.com/rshun/mcpconfig/releases/download/v0.7.2/MCP.Hub_0.7.2_macos-arm64.dmg)，即 `MCP.Hub_<版本>_macos-arm64.dmg`（v0.4.2 及更早为 `MCP.Hub_<版本>_aarch64.dmg`），
+macOS（Apple Silicon）用户可下载 [GUI 安装包](https://github.com/rshun/mcpconfig/releases/download/v0.7.3/MCP.Hub_0.7.3_macos-arm64.dmg)，即 `MCP.Hub_<版本>_macos-arm64.dmg`（v0.4.2 及更早为 `MCP.Hub_<版本>_aarch64.dmg`），
 打开后把 **MCP Hub** 拖入「应用程序」。`mcp-hub-cli-*` / `mcp-hub-v*-macos-arm64.tar.gz` 是命令行包，解压后双击会打开终端。
 从 v0.4.3 起 macOS 应用使用 ad-hoc 签名（非 Apple 开发者证书、未公证），首次打开会提示“无法验证开发者”：
 点「完成」后到「系统设置 → 隐私与安全性」点「仍要打开」，之后可直接启动，无需执行 `xattr`。
@@ -141,7 +143,7 @@ v0.4.2 起按字段和参数语义脱敏：普通 URL、包名、目录、参数
 在 Agents 页点选 Agent 后点击「导入到 MCP 库」，勾选条目，确认凭据处理方式，再预览并确认。
 同名项默认跳过，可重命名或明确替换；替换须额外确认，会先备份原配置库。未选中的条目和来源 Agent 文件保持不变。
 普通参数、URL、目录及非敏感环境变量/请求头按原值导入。识别到的凭据默认原样复制到配置库（明文保存，请勿提交或分享配置库），也可逐个改为环境变量映射。
-原始凭据不回传前端，扫描和预览中保持隐藏；无法无损转换的条目明确阻止导入。
+原始凭据不回传前端，扫描和预览中保持隐藏；已适配方言（如 Codex `http_headers`、WorkBuddy/Cline `disabled` 与 `description`）自动无损映射。对不含疑似敏感凭据的客户端专有扩展字段，界面会显式提示仅导入核心连接配置并忽略专有字段；结构异常、歧义别名或未知字段含疑似凭据时仍阻止导入。
 确认时检查源文件、配置库和上下文是否变化，旧预览不能覆盖新内容。
 具体变量规则、使用步骤、限制、GitHub 验证和回退方式见 [导入说明](docs/IMPORTING.md)。
 
@@ -242,3 +244,84 @@ cargo fmt --all
 cargo clippy -p mcp-core --all-targets -- -D warnings
 cargo test -p mcp-core
 ```
+
+---
+
+## English Guide
+
+**MCP Hub** is a cross-client, multi-environment configuration manager and one-click distributor for the **Model Context Protocol (MCP)**. Maintain a single unified YAML/JSON catalog and safely distribute it in each client's native format across **14 MCP clients** (`stdio`, `http`, `sse`, per-OS overrides, and scoped configs) — without manually editing $M \times N \times K$ files.
+
+### Supported Clients (14)
+
+Claude Code · Codex CLI · WorkBuddy · Kimi Code · OpenCode (v2) · VS Code · Antigravity · Grok · Cursor · Cline · Gemini CLI · Claude Desktop · Windsurf · Trae
+
+### Key Features & Safety Guarantees
+
+- **Unified Catalog & Dialect Translation**: Normalizes client-specific formats (JSON, JSONC, TOML), root keys (`mcpServers`, `servers`, `mcp.servers`, `mcp_servers`), command layouts (`command` + `args[]` vs `command[]`), URL keys (`url` vs `serverUrl`), header keys (`headers` vs Codex `http_headers`), enable switches (`enabled` vs `disabled`), and environment variable interpolation (`${VAR}`, `${env:VAR}`, `{env:VAR}`, or `bearer_token_env_var`).
+- **3-Way Surgical Merge**: Modifies only managed MCP subtrees via lexical JSONC span patching and `toml_edit` CST updates — preserving comments, formatting, and unmanaged user fields.
+- **Automatic Backups & One-Click Rollback**: Every write creates a timestamped pre-write backup under `~/.mcp-hub/backups/` (or a custom backup directory) with atomic writes, post-write validation, and audit logs.
+- **One-Time Preview Consistency**: GUI distribution and import commits require a backend-issued one-time preview token bound to the source, target, settings, and project context snapshots.
+- **Selective Credential Redaction & Safe Agent Import**: Scans existing Agent configs read-only, maps common dialects (`http_headers`, `disabled`, `description`), hides detected credentials in scans/previews, lets you choose verbatim copy or `${ENV:VAR}` binding per credential field, warns when ignoring non-sensitive client-specific extension keys (e.g., Codex `tools`), and blocks malformed or secret-bearing unknown fields.
+- **Customizable Workbench UI**: Supports Light/Dark mode, 6 accent palettes, live font switching, and a refined **Tactile 3D / Flat** surface style toggle.
+
+### Desktop GUI Downloads (v0.7.3)
+
+- **Windows (x64)**: [Installer (`MCP.Hub_0.7.3_x64-setup.exe`)](https://github.com/rshun/mcpconfig/releases/download/v0.7.3/MCP.Hub_0.7.3_x64-setup.exe) or [Portable ZIP (`MCP.Hub_0.7.3_windows-x64-portable.zip`)](https://github.com/rshun/mcpconfig/releases/download/v0.7.3/MCP.Hub_0.7.3_windows-x64-portable.zip) (extract the full ZIP and run `MCP.Hub.exe`; requires [Microsoft WebView2 Runtime](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)).
+- **macOS (Apple Silicon)**: [DMG (`MCP.Hub_0.7.3_macos-arm64.dmg`)](https://github.com/rshun/mcpconfig/releases/download/v0.7.3/MCP.Hub_0.7.3_macos-arm64.dmg) — drag **MCP Hub** to Applications. Since v0.4.3 builds use ad-hoc signing, on first launch click **Done**, then open **System Settings → Privacy & Security → Open Anyway**.
+- Standalone CLI archives (`mcp-hub-cli-v*`) and `SHA256SUMS` are available on the [Releases](https://github.com/rshun/mcpconfig/releases) page.
+
+### CLI Quick Start
+
+```bash
+mcp-hub clients                    # List all 14 built-in client adapters
+mcp-hub doctor                     # Inspect client readiness and resolved config paths
+mcp-hub diff  --catalog customer-mcp.yaml --client claude-code,codex
+mcp-hub apply --catalog customer-mcp.yaml --client claude-code,codex --yes
+mcp-hub backups                    # List available pre-write backups
+mcp-hub restore --id 20261026-070423
+```
+
+Safe defaults:
+- `apply` without `--yes` performs a dry plan check without writing files (exit code `2`).
+- `--home <dir>` isolates `HOME` and `APPDATA` into a sandbox directory for testing.
+- `--mode merge|replace` chooses field-level 3-way merge vs full-entry replacement.
+- `--scope user|project|local` selects the target scope (default: `user`).
+
+### Example Catalog (`examples/customer-mcp.yaml`)
+
+```yaml
+version: 1
+entries:
+  - name: github
+    transport: http
+    url: https://api.githubcopilot.com/mcp/
+    auth:
+      type: bearer
+      token_env: GITHUB_PAT      # Reference env var name instead of hardcoding secrets
+    scope: project               # Omit or use inherit to follow the global scope
+
+  - name: stockdb
+    transport: stdio
+    command: python
+    args: ["-u", "${PROJECT_ROOT}/ai_mcp/stockdb_full_mcp.py"]
+    overrides:
+      windows:
+        command: c:/Dev/stockdata/.venv/Scripts/python.exe
+```
+
+### Architecture & Local Development
+
+- **Core layering**: `mcp-core` (pure, zero-IO IR & 14 adapters) → `mcp-io` (backups, atomic writes, audit) → `mcp-app` (application workflows) → `mcp-cli` / `apps/web` (React + TS + Tauri v2 shell).
+- **Prerequisites**: `rustc >= 1.85` for core crates (`>= 1.90` for Tauri desktop shell), plus Node.js for `apps/web`.
+
+```bash
+# Run Rust tests
+cargo test -p mcp-core
+cargo test --locked -p mcp-core -p mcp-io -p mcp-app -p mcp-cli
+
+# Run frontend unit tests & mock UI dev server (?mock=1 needs no backend)
+npm --prefix apps/web test
+npm --prefix apps/web run dev
+```
+
+For architecture and adapter dialect details, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/adapters.md`](docs/adapters.md), [`docs/IMPORTING.md`](docs/IMPORTING.md), and [`docs/SAFETY.md`](docs/SAFETY.md).
